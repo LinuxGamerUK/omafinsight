@@ -961,28 +961,478 @@ ApplicationWindow {
     font.pixelSize: 13
     background: Rectangle { color: appWindow.inputBg; radius: 6; border.color: appWindow.border }
   }
-
+  // ── M3 components ────────────────────────────────────────────────────
   component Card: Rectangle {
-    color: appWindow.card
-    radius: 10
-    border.color: appWindow.border
+    color: appWindow.cSurface
+    radius: 14
+    border.color: appWindow.cOutline
   }
 
   component PillButton: Button {
     id: pb
+    height: 32
+    leftPadding: 12
+    rightPadding: 12
     contentItem: Text {
       text: pb.text
-      color: pb.enabled ? appWindow.fg : appWindow.dim
+      color: pb.enabled ? appWindow.cOnSurface : appWindow.cOnVar
       font.family: appWindow.fontFamily
-      font.pixelSize: 12
+      font.pixelSize: 11
       font.bold: true
       horizontalAlignment: Text.AlignHCenter
       verticalAlignment: Text.AlignVCenter
     }
     background: Rectangle {
-      radius: 6
-      color: pb.down ? appWindow.accent : (pb.hovered ? Qt.lighter(appWindow.card, 1.4) : appWindow.card)
-      border.color: pb.down ? appWindow.accent : appWindow.border
+      radius: 16
+      color: pb.down ? appWindow.cPrimary : (pb.hovered ? appWindow.cSurfaceHi : appWindow.cSurface)
+      border.color: pb.down ? appWindow.cPrimary : appWindow.cOutline
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════
+  // UI — Material You tonal surfaces on a deep-navy terminal canvas
+  // ═════════════════════════════════════════════════════════════════════
+
+  // ── M3-derived palette (tonal surfaces on #0b0e1a) ───────────────────
+  readonly property color cBg: "#0b0e1a"
+  readonly property color cSurface: "#141a2e"        // surface-container
+  readonly property color cSurfaceHi: "#1c2340"      // surface-container-high
+  readonly property color cSurfaceLo: "#101527"      // surface-container-low (sidebar)
+  readonly property color cOutline: "#2c3352"
+  readonly property color cOutlineVar: "#232a45"
+  readonly property color cPrimary: "#a5c8ff"        // M3 primary (tonal blue)
+  readonly property color cOnPrimary: "#0a2c6b"
+  readonly property color cPrimaryDim: "#4a6db5"
+  readonly property color cSecondary: "#7fd0c9"      // teal accent
+  readonly property color cTertiary: "#c9a5ff"       // violet accent
+  readonly property color cGreen: "#8fd6a0"
+  readonly property color cRed: "#f0989c"
+  readonly property color cOrange: "#f5b57f"
+  readonly property color cOnSurface: "#e4e6f5"
+  readonly property color cOnVar: "#9aa3c7"          // on-surface-variant
+  readonly property color cInputBg: "#0d1224"
+  readonly property color cPrimaryContainer: "#1b2a4a"
+
+  // ── derived analytics (pure functions of loaded data) ────────────────
+  function monthKey(iso) { return String(iso || "").substring(0, 7) }
+
+  function thisMonthKey() {
+    var d = new Date()
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")
+  }
+
+  // adhoc spend per category this month (expenses only)
+  function categorySpend() {
+    var mk = thisMonthKey()
+    var out = {}
+    for (var i = 0; i < adhocs.length; i++) {
+      var a = adhocs[i]
+      if (monthKey(a.date) !== mk) continue
+      if (a.direction !== "expense") continue
+      var k = String(a.category || "Uncategorised")
+      out[k] = (out[k] || 0) + Math.abs(Number(a.amount) || 0)
+    }
+    // merge repeat amounts (monthly ×1 as committed spend)
+    for (var j = 0; j < repeats.length; j++) {
+      var r = repeats[j]
+      if (r.direction !== "expense") continue
+      var k2 = String(r.category || "Uncategorised")
+      out[k2] = (out[k2] || 0) + Math.abs(Number(r.amount) || 0)
+    }
+    var arr = []
+    for (var name in out) arr.push({ name: name, spend: out[name] })
+    arr.sort(function(a, b) { return b.spend - a.spend })
+    return arr.slice(0, 6)
+  }
+
+  // month totals from adhocs (last 6 months): {in, out}
+  function monthTotals(offset) {
+    var d = new Date()
+    d.setMonth(d.getMonth() - offset)
+    var mk = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")
+    var t = { in: 0, out: 0 }
+    for (var i = 0; i < adhocs.length; i++) {
+      var a = adhocs[i]
+      if (monthKey(a.date) !== mk) continue
+      if (a.direction === "income") t.in += Math.abs(Number(a.amount) || 0)
+      else t.out += Math.abs(Number(a.amount) || 0)
+    }
+    return t
+  }
+
+  function cashflowSeries() {
+    var out = []
+    for (var i = 5; i >= 0; i--) {
+      var t = monthTotals(i)
+      var d = new Date()
+      d.setMonth(d.getMonth() - i)
+      var names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+      out.push({ label: names[d.getMonth()], in: t.in, out: t.out, net: t.in - t.out })
+    }
+    return out
+  }
+
+  // savings rate this month: (in - out) / in
+  function savingsRate() {
+    var t = monthTotals(0)
+    if (t.in <= 0) return 0
+    return Math.max(0, Math.round((t.in - t.out) / t.in * 100))
+  }
+
+  function monthOutTotal() {
+    return monthTotals(0).out
+  }
+
+  function sparklinePoints() {
+    // balance history from chart series (back 30 days)
+    var pts = []
+    for (var i = 0; i < series.length; i++) {
+      if (series[i].balance === series[i].balance) pts.push(series[i].balance)
+    }
+    return pts.slice(-30)
+  }
+
+  function totalCash() {
+    var sum = 0
+    if (scope === "all" || !dash) {
+      for (var i = 0; i < accounts.length; i++) {
+        var b = accounts[i].balanceNow
+        if (b === b && b > 0) sum += b
+      }
+      return sum
+    }
+    return dash && dash.summary ? dash.summary.expectedToday : NaN
+  }
+
+  function recentAdhocs() {
+    return adhocs.slice(0, 6)
+  }
+
+  function upcomingBills() {
+    var out = []
+    var src = dash && dash.upcoming ? dash.upcoming : []
+    for (var i = 0; i < src.length && out.length < 5; i++) {
+      if (src[i].amount < 0) out.push(src[i])
+    }
+    return out
+  }
+
+  function nextPayday() {
+    for (var i = 0; i < repeats.length; i++) {
+      if (repeats[i].direction === "income" && repeats[i].nextDate) return repeats[i]
+    }
+    return null
+  }
+
+  readonly property var cashflow: cashflowSeries()
+  readonly property var catSpend: categorySpend()
+  readonly property int savRate: savingsRate()
+  readonly property real monthOut: monthOutTotal()
+  readonly property var sparkPts: sparklinePoints()
+
+  // ── reusable components ──────────────────────────────────────────────
+  component NavItem: Rectangle {
+    id: navItem
+    property string iconGlyph: ""
+    property string label: ""
+    property int idx: 0
+    readonly property bool active: appWindow.navPage === idx
+    width: parent ? parent.width - 20 : 200
+    height: 44
+    radius: 22
+    color: active ? appWindow.cPrimaryContainer : (navMa.containsMouse ? appWindow.cSurfaceHi : "transparent")
+    border.color: active ? appWindow.cPrimaryDim : "transparent"
+
+    Row {
+      anchors.left: parent.left
+      anchors.leftMargin: 18
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: 12
+
+      Text {
+        text: navItem.iconGlyph
+        color: navItem.active ? appWindow.cPrimary : appWindow.cOnVar
+        font.family: appWindow.fontFamily
+        font.pixelSize: 15
+        textFormat: Text.PlainText
+        anchors.verticalCenter: parent.verticalCenter
+      }
+      Text {
+        text: navItem.label
+        color: navItem.active ? appWindow.cOnSurface : appWindow.cOnVar
+        font.family: appWindow.fontFamily
+        font.pixelSize: 13
+        font.bold: navItem.active
+        textFormat: Text.PlainText
+        anchors.verticalCenter: parent.verticalCenter
+      }
+    }
+
+    MouseArea {
+      id: navMa
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: appWindow.navPage = navItem.idx
+    }
+  }
+
+  component KpiCard: Rectangle {
+    id: kpiCard
+    property string title: ""
+    property string bigValue: ""
+    property string subLine: ""
+    property color subColor: appWindow.cGreen
+    property bool showSpark: false
+
+    color: appWindow.cSurface
+    radius: 14
+    border.color: appWindow.cOutlineVar
+    height: 118
+
+    Column {
+      anchors.fill: parent
+      anchors.margins: 16
+      spacing: 6
+
+      Text {
+        text: kpiCard.title
+        color: appWindow.cOnVar
+        font.family: appWindow.fontFamily
+        font.pixelSize: 10
+        font.letterSpacing: 1.4
+        font.bold: true
+        textFormat: Text.PlainText
+      }
+
+      Row {
+        width: parent.width
+        spacing: 10
+
+        Text {
+          text: kpiCard.bigValue
+          color: appWindow.cOnSurface
+          font.family: appWindow.fontFamily
+          font.pixelSize: 26
+          font.bold: true
+          textFormat: Text.PlainText
+        }
+
+        Item { width: 8; height: 1 }
+
+        MiniSparkline {
+          width: Math.min(160, parent.width - 160)
+          height: 34
+          pts: kpiCard.showSpark ? appWindow.sparkPts : []
+          visible: kpiCard.showSpark && appWindow.sparkPts.length > 2
+          anchors.verticalCenter: parent.verticalCenter
+        }
+      }
+
+      Text {
+        text: kpiCard.subLine
+        color: kpiCard.subColor
+        font.family: appWindow.fontFamily
+        font.pixelSize: 11
+        textFormat: Text.PlainText
+      }
+    }
+  }
+
+  component MiniSparkline: Canvas {
+    id: spark
+    property var pts: []
+    onPtsChanged: requestPaint()
+    onPaint: {
+      var ctx = getContext("2d")
+      ctx.reset()
+      if (pts.length < 2) return
+      var min = Infinity, max = -Infinity
+      for (var i = 0; i < pts.length; i++) {
+        if (pts[i] < min) min = pts[i]
+        if (pts[i] > max) max = pts[i]
+      }
+      if (max === min) max = min + 1
+      ctx.strokeStyle = appWindow.cPrimary
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      for (var j = 0; j < pts.length; j++) {
+        var x = (j / (pts.length - 1)) * width
+        var y = height - ((pts[j] - min) / (max - min)) * (height - 4) - 2
+        if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+      }
+      ctx.stroke()
+    }
+  }
+
+  component SectionHeader: Row {
+    property string title: ""
+    spacing: 8
+
+    Text {
+      text: sectionTitle()
+      color: appWindow.cPrimary
+      font.family: appWindow.fontFamily
+      font.pixelSize: 12
+      font.bold: true
+      font.letterSpacing: 1.6
+      textFormat: Text.PlainText
+
+      function sectionTitle() { return title }
+    }
+  }
+
+  component CatBar: Rectangle {
+    id: catBar
+    property string catName: ""
+    property real spent: 0
+    property color barColor: appWindow.cPrimary
+    property string iconGlyph: ""
+
+    color: appWindow.cSurfaceHi
+    radius: 12
+    border.color: appWindow.cOutlineVar
+    height: 86
+
+    readonly property real maxSpend: {
+      var m = 0
+      var arr = appWindow.catSpend
+      for (var i = 0; i < arr.length; i++) if (arr[i].spend > m) m = arr[i].spend
+      return m > 0 ? m : 1
+    }
+    readonly property real pct: Math.min(100, Math.round(spent / maxSpend * 100))
+
+    Column {
+      anchors.fill: parent
+      anchors.margins: 12
+      spacing: 6
+
+      Row {
+        width: parent.width
+        spacing: 8
+
+        Text {
+          text: catBar.iconGlyph
+          color: catBar.barColor
+          font.family: appWindow.fontFamily
+          font.pixelSize: 13
+          textFormat: Text.PlainText
+        }
+        Text {
+          width: parent.width - 40
+          text: sanitize(catBar.catName)
+          color: appWindow.cOnSurface
+          font.family: appWindow.fontFamily
+          font.pixelSize: 12
+          elide: Text.ElideRight
+          textFormat: Text.PlainText
+        }
+      }
+
+      Text {
+        text: appWindow.fmtMoney(spent, 0)
+        color: appWindow.cOnSurface
+        font.family: appWindow.fontFamily
+        font.pixelSize: 15
+        font.bold: true
+        textFormat: Text.PlainText
+      }
+
+      Row {
+        width: parent.width
+        spacing: 6
+
+        Rectangle {
+          width: parent.width - 34
+          height: 5
+          radius: 3
+          color: appWindow.cInputBg
+
+          Rectangle {
+            width: parent.width * catBar.pct / 100
+            height: 5
+            radius: 3
+            color: catBar.barColor
+          }
+        }
+
+        Text {
+          text: catBar.pct + "%"
+          color: appWindow.cOnVar
+          font.family: appWindow.fontFamily
+          font.pixelSize: 10
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+        }
+      }
+    }
+  }
+
+  component CashflowChart: Canvas {
+    id: cfChart
+    property var months: []
+    property real padL: 42
+    property real padB: 22
+    property real padT: 10
+
+    onMonthsChanged: requestPaint()
+    onWidthChanged: requestPaint()
+    onPaint: {
+      var ctx = getContext("2d")
+      ctx.reset()
+      if (months.length === 0) return
+      var maxV = 1
+      for (var i = 0; i < months.length; i++) {
+        if (months[i].in > maxV) maxV = months[i].in
+        if (months[i].out > maxV) maxV = months[i].out
+      }
+      maxV *= 1.1
+      var H = height - padB - padT
+      var W = width - padL - 8
+      var group = W / months.length
+      var bw = Math.max(6, group / 3.6)
+
+      // gridlines
+      ctx.strokeStyle = appWindow.cOutlineVar
+      ctx.fillStyle = appWindow.cOnVar
+      ctx.font = "9px sans-serif"
+      for (var g = 0; g <= 3; g++) {
+        var gy = padT + H - (H * g) / 3
+        ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(width - 8, gy); ctx.stroke()
+        ctx.fillText(appWindow._group(String(Math.round(maxV * g / 3))), 2, gy + 3)
+      }
+
+      for (var m = 0; m < months.length; m++) {
+        var gx = padL + m * group + group / 2
+        // income bar (green)
+        var inH = (months[m].in / maxV) * H
+        ctx.fillStyle = appWindow.cGreen
+        ctx.fillRect(gx - bw - 1, padT + H - inH, bw, inH)
+        // expense bar (red)
+        var outH = (months[m].out / maxV) * H
+        ctx.fillStyle = appWindow.cRed
+        ctx.fillRect(gx + 1, padT + H - outH, bw, outH)
+        // label
+        ctx.fillStyle = appWindow.cOnVar
+        ctx.fillText(months[m].label, gx - 10, height - 6)
+      }
+    }
+  }
+
+  component CashflowLegend: Row {
+    spacing: 14
+
+    Repeater {
+      model: [
+        { label: "Income", c: appWindow.cGreen },
+        { label: "Expenses", c: appWindow.cRed }
+      ]
+      Row {
+        required property var modelData
+        spacing: 5
+        Rectangle { width: 10; height: 10; radius: 2; color: modelData.c; anchors.verticalCenter: parent.verticalCenter }
+        Text { text: modelData.label; color: appWindow.cOnVar; font.family: appWindow.fontFamily; font.pixelSize: 10; textFormat: Text.PlainText; anchors.verticalCenter: parent.verticalCenter }
+      }
     }
   }
 
@@ -996,11 +1446,10 @@ ApplicationWindow {
   Component {
     id: authComp
     Rectangle {
-      color: "#11131c"
+      color: appWindow.cBg
       anchors.fill: parent
 
       Flickable {
-        id: authFlick
         anchors.fill: parent
         contentWidth: width
         contentHeight: authCol.height + 60
@@ -1009,28 +1458,29 @@ ApplicationWindow {
 
         Column {
           id: authCol
-          width: Math.min(560, parent.width - 48)
+          width: Math.min(520, parent.width - 48)
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.top: parent.top
-          anchors.topMargin: 40
+          anchors.topMargin: 44
           spacing: 14
 
           Row {
             spacing: 10
             anchors.horizontalCenter: parent.horizontalCenter
+
             Text {
               text: "\ue933"
-              color: appWindow.accent
+              color: appWindow.cPrimary
               font.family: appWindow.fontFamily
-              font.pixelSize: 30
+              font.pixelSize: 28
               textFormat: Text.PlainText
               anchors.verticalCenter: parent.verticalCenter
             }
             Text {
               text: "OmaFinSight"
-              color: appWindow.fg
+              color: appWindow.cOnSurface
               font.family: appWindow.fontFamily
-              font.pixelSize: 24
+              font.pixelSize: 22
               font.bold: true
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
@@ -1042,7 +1492,7 @@ ApplicationWindow {
             text: appWindow.regMode
               ? "Create your account on " + sanitize(appWindow.baseUrl.replace(/^https?:\/\//, ""))
               : "Sign in to " + sanitize(appWindow.baseUrl.replace(/^https?:\/\//, ""))
-            color: appWindow.dim
+            color: appWindow.cOnVar
             font.family: appWindow.fontFamily
             font.pixelSize: 12
             horizontalAlignment: Text.AlignHCenter
@@ -1054,22 +1504,25 @@ ApplicationWindow {
             id: nameField
             visible: appWindow.regMode
             width: parent.width
+            height: 44
             placeholderText: "Your name"
-            color: appWindow.fg
-            placeholderTextColor: appWindow.dim
+            color: appWindow.cOnSurface
+            placeholderTextColor: appWindow.cOnVar
             font.family: appWindow.fontFamily
-            background: Rectangle { color: appWindow.inputBg; radius: 6; border.color: appWindow.border }
+            background: Rectangle { color: appWindow.cInputBg; radius: 10; border.color: appWindow.cOutline }
             enabled: !appWindow.authBusy
           }
 
           TextField {
             id: emailField
             width: parent.width
+            height: 44
             placeholderText: "Email address"
-            color: appWindow.fg
-            placeholderTextColor: appWindow.dim
+            color: appWindow.cOnSurface
+            placeholderTextColor: appWindow.cOnVar
             font.family: appWindow.fontFamily
-            background: Rectangle { color: appWindow.inputBg; radius: 6; border.color: appWindow.border }
+            background: Rectangle { color: appWindow.cInputBg; radius: 10; border.color: appWindow.cOutline }
+            enabled: !appWindow.authBusy
             Component.onCompleted: {
               if (!appWindow.regMode) forceActiveFocus()
               else Qt.callLater(function() { if (!nameField.activeFocus) nameField.forceActiveFocus() })
@@ -1079,19 +1532,21 @@ ApplicationWindow {
           TextField {
             id: passwordField
             width: parent.width
+            height: 44
             placeholderText: appWindow.regMode ? "Password (min 8 characters)" : "Password"
             echoMode: TextInput.Password
-            color: appWindow.fg
-            placeholderTextColor: appWindow.dim
+            color: appWindow.cOnSurface
+            placeholderTextColor: appWindow.cOnVar
             font.family: appWindow.fontFamily
-            background: Rectangle { color: appWindow.inputBg; radius: 6; border.color: appWindow.border }
+            background: Rectangle { color: appWindow.cInputBg; radius: 10; border.color: appWindow.cOutline }
             enabled: !appWindow.authBusy
           }
 
           ComboBox {
             id: currencyBox
             visible: appWindow.regMode
-            width: 200
+            width: 180
+            height: 40
             model: ["GBP", "USD", "EUR", "JPY", "CNY", "INR", "AUD", "CAD", "CHF", "BRL"]
             enabled: !appWindow.authBusy
           }
@@ -1099,11 +1554,12 @@ ApplicationWindow {
           Button {
             id: goButton
             width: parent.width
+            height: 46
             enabled: !appWindow.authBusy && emailField.text.trim() !== "" && passwordField.text !== "" &&
                      (!appWindow.regMode || nameField.text.trim() !== "")
             contentItem: Text {
               text: appWindow.authBusy ? "Working…" : (appWindow.regMode ? "Create account" : "Sign in")
-              color: goButton.enabled ? appWindow.fg : appWindow.dim
+              color: goButton.enabled ? appWindow.cOnPrimary : appWindow.cOnVar
               font.family: appWindow.fontFamily
               font.pixelSize: 13
               font.bold: true
@@ -1111,9 +1567,8 @@ ApplicationWindow {
               verticalAlignment: Text.AlignVCenter
             }
             background: Rectangle {
-              radius: 6
-              color: goButton.down ? appWindow.accent : (goButton.enabled ? Qt.lighter(appWindow.card, 1.6) : appWindow.card)
-              border.color: appWindow.border
+              radius: 23
+              color: goButton.enabled ? appWindow.cPrimary : appWindow.cSurfaceHi
             }
             onClicked: {
               if (appWindow.regMode)
@@ -1127,7 +1582,7 @@ ApplicationWindow {
             width: parent.width
             visible: appWindow.authError !== ""
             text: appWindow.authError
-            color: appWindow.red
+            color: appWindow.cRed
             font.family: appWindow.fontFamily
             font.pixelSize: 12
             wrapMode: Text.WordWrap
@@ -1136,7 +1591,7 @@ ApplicationWindow {
 
           Text {
             text: appWindow.regMode ? "Already have an account? Sign in" : "New here? Create an account"
-            color: appWindow.accent
+            color: appWindow.cPrimary
             font.family: appWindow.fontFamily
             font.pixelSize: 12
             anchors.horizontalCenter: parent.horizontalCenter
@@ -1154,8 +1609,8 @@ ApplicationWindow {
 
           Text {
             width: parent.width
-            text: "Your password is sent once over HTTPS and never stored — only the session cookie is kept, at ~/.local/state/omafinsight/session.txt (0600)."
-            color: appWindow.dim
+            text: "Your password is sent once over HTTPS and never stored — only the session cookie is kept, at ~/.local/state/omafinsight (0600)."
+            color: appWindow.cOnVar
             font.family: appWindow.fontFamily
             font.pixelSize: 11
             wrapMode: Text.WordWrap
@@ -1177,7 +1632,7 @@ ApplicationWindow {
   Component {
     id: onboardComp
     Rectangle {
-      color: "#11131c"
+      color: appWindow.cBg
       anchors.fill: parent
 
       Flickable {
@@ -1189,28 +1644,29 @@ ApplicationWindow {
 
         Column {
           id: onbCol
-          width: Math.min(560, parent.width - 48)
+          width: Math.min(520, parent.width - 48)
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.top: parent.top
-          anchors.topMargin: 40
+          anchors.topMargin: 44
           spacing: 14
 
           Row {
             spacing: 10
             anchors.horizontalCenter: parent.horizontalCenter
+
             Text {
               text: "\ue933"
-              color: appWindow.accent
+              color: appWindow.cPrimary
               font.family: appWindow.fontFamily
-              font.pixelSize: 30
+              font.pixelSize: 28
               textFormat: Text.PlainText
               anchors.verticalCenter: parent.verticalCenter
             }
             Text {
               text: "Welcome, " + sanitize(appWindow.obName || "there")
-              color: appWindow.fg
+              color: appWindow.cOnSurface
               font.family: appWindow.fontFamily
-              font.pixelSize: 22
+              font.pixelSize: 20
               font.bold: true
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
@@ -1220,7 +1676,7 @@ ApplicationWindow {
           Text {
             width: parent.width
             text: "Three quick things to set up your forecast: your starting balance, a name for your main account, and the date that balance was true."
-            color: appWindow.dim
+            color: appWindow.cOnVar
             font.family: appWindow.fontFamily
             font.pixelSize: 12
             wrapMode: Text.WordWrap
@@ -1229,18 +1685,18 @@ ApplicationWindow {
 
           Text {
             text: "OPENING BALANCE"
-            color: appWindow.dim
+            color: appWindow.cOnVar
             font.family: appWindow.fontFamily
             font.pixelSize: 10
             font.bold: true
-            font.letterSpacing: 1.2
+            font.letterSpacing: 1.4
             textFormat: Text.PlainText
           }
           Row {
             spacing: 8
             Text {
               text: appWindow.currencySymbol
-              color: appWindow.fg
+              color: appWindow.cOnSurface
               font.family: appWindow.fontFamily
               font.pixelSize: 14
               anchors.verticalCenter: parent.verticalCenter
@@ -1250,11 +1706,12 @@ ApplicationWindow {
               id: obBalanceField
               objectName: "obBalanceField"
               width: 160
+              height: 42
               placeholderText: "0.00"
-              color: appWindow.fg
-              placeholderTextColor: appWindow.dim
+              color: appWindow.cOnSurface
+              placeholderTextColor: appWindow.cOnVar
               font.family: appWindow.fontFamily
-              background: Rectangle { color: appWindow.inputBg; radius: 6; border.color: appWindow.border }
+              background: Rectangle { color: appWindow.cInputBg; radius: 10; border.color: appWindow.cOutline }
               enabled: !appWindow.obSubmitting
               text: appWindow.obOpening === 0 ? "" : String(appWindow.obOpening)
               Component.onCompleted: forceActiveFocus()
@@ -1263,49 +1720,52 @@ ApplicationWindow {
 
           Text {
             text: "MAIN ACCOUNT NAME"
-            color: appWindow.dim
+            color: appWindow.cOnVar
             font.family: appWindow.fontFamily
             font.pixelSize: 10
             font.bold: true
-            font.letterSpacing: 1.2
+            font.letterSpacing: 1.4
             textFormat: Text.PlainText
           }
           TextField {
             id: obNameField
             width: 320
+            height: 42
             text: appWindow.obAccountName
-            color: appWindow.fg
+            color: appWindow.cOnSurface
             font.family: appWindow.fontFamily
-            background: Rectangle { color: appWindow.inputBg; radius: 6; border.color: appWindow.border }
+            background: Rectangle { color: appWindow.cInputBg; radius: 10; border.color: appWindow.cOutline }
             enabled: !appWindow.obSubmitting
           }
 
           Text {
             text: "BALANCE WAS TRUE ON"
-            color: appWindow.dim
+            color: appWindow.cOnVar
             font.family: appWindow.fontFamily
             font.pixelSize: 10
             font.bold: true
-            font.letterSpacing: 1.2
+            font.letterSpacing: 1.4
             textFormat: Text.PlainText
           }
           TextField {
             id: obDateField
             width: 160
+            height: 42
             placeholderText: appWindow.todayISO()
-            color: appWindow.fg
-            placeholderTextColor: appWindow.dim
+            color: appWindow.cOnSurface
+            placeholderTextColor: appWindow.cOnVar
             font.family: appWindow.fontFamily
-            background: Rectangle { color: appWindow.inputBg; radius: 6; border.color: appWindow.border }
+            background: Rectangle { color: appWindow.cInputBg; radius: 10; border.color: appWindow.cOutline }
             enabled: !appWindow.obSubmitting
           }
 
           Button {
             width: 320
+            height: 46
             enabled: !appWindow.obSubmitting && obBalanceField.text.trim() !== ""
             contentItem: Text {
               text: appWindow.obSubmitting ? "Setting up…" : "Start forecasting"
-              color: appWindow.fg
+              color: appWindow.cOnPrimary
               font.family: appWindow.fontFamily
               font.pixelSize: 13
               font.bold: true
@@ -1313,8 +1773,8 @@ ApplicationWindow {
               verticalAlignment: Text.AlignVCenter
             }
             background: Rectangle {
-              radius: 6
-              color: appWindow.accent
+              radius: 23
+              color: appWindow.cPrimary
               opacity: parent.enabled ? 1 : 0.4
             }
             onClicked: {
@@ -1329,7 +1789,7 @@ ApplicationWindow {
             width: parent.width
             visible: appWindow.obError !== ""
             text: appWindow.obError
-            color: appWindow.red
+            color: appWindow.cRed
             font.family: appWindow.fontFamily
             font.pixelSize: 12
             wrapMode: Text.WordWrap
@@ -1340,7 +1800,9 @@ ApplicationWindow {
     }
   }
 
-  // ── MAIN VIEW ────────────────────────────────────────────────────────
+  // ── MAIN VIEW (sidebar + pages) ──────────────────────────────────────
+  property int navPage: 0   // 0 dashboard, 1 transactions, 2 recurring, 3 accounts
+
   Loader {
     anchors.fill: parent
     active: appWindow.view === "main"
@@ -1350,309 +1812,1075 @@ ApplicationWindow {
   Component {
     id: mainComp
     Rectangle {
-      color: "#11131c"
+      color: appWindow.cBg
       anchors.fill: parent
 
-      Column {
+      Row {
         anchors.fill: parent
-        anchors.margins: 14
-        spacing: 10
 
-        // header
-        Item {
-          width: parent.width
-          height: 42
+        // ── sidebar ─────────────────────────────────────────────────
+        Rectangle {
+          width: 220
+          height: parent.height
+          color: appWindow.cSurfaceLo
 
-          Row {
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 10
+          Column {
+            anchors.fill: parent
+            anchors.margins: 14
+            spacing: 4
 
-            Text {
-              text: "\ue933"
-              color: appWindow.accent
-              font.family: appWindow.fontFamily
-              font.pixelSize: 22
-              textFormat: Text.PlainText
-              anchors.verticalCenter: parent.verticalCenter
+            Row {
+              spacing: 10
+              leftPadding: 6
+              topPadding: 4
+
+              Text {
+                text: "\ue933"
+                color: appWindow.cPrimary
+                font.family: appWindow.fontFamily
+                font.pixelSize: 20
+                textFormat: Text.PlainText
+              }
+              Text {
+                text: "OmaFinSight"
+                color: appWindow.cOnSurface
+                font.family: appWindow.fontFamily
+                font.pixelSize: 15
+                font.bold: true
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+              }
             }
-            Text {
-              text: "OmaFinSight"
-              color: appWindow.fg
-              font.family: appWindow.fontFamily
-              font.pixelSize: 18
-              font.bold: true
-              anchors.verticalCenter: parent.verticalCenter
-              textFormat: Text.PlainText
+
+            Item { width: 1; height: 10 }
+
+            NavItem { iconGlyph: "\uf109"; label: "Dashboard"; idx: 0 }
+            NavItem { iconGlyph: "\uf03a"; label: "Transactions"; idx: 1 }
+            NavItem { iconGlyph: "\uf021"; label: "Recurring"; idx: 2 }
+            NavItem { iconGlyph: "\uf19c"; label: "Accounts"; idx: 3 }
+
+            Item { width: 1; height: 1 }
+
+            Rectangle {
+              width: parent.width - 20
+              height: 1
+              color: appWindow.cOutlineVar
             }
+
+            Item { width: 1; height: 8 }
+
             Text {
+              leftPadding: 12
+              text: "Your money.\nYour instance.\nAlways yours."
+              color: appWindow.cOnVar
+              font.family: appWindow.fontFamily
+              font.pixelSize: 11
+              textFormat: Text.PlainText
+              lineHeight: 1.3
+            }
+
+            Item { width: 1; height: 1 }
+
+            Text {
+              leftPadding: 12
               text: {
                 if (!appWindow.dash) return ""
                 var s = appWindow.dash.scope
-                if (s === "all") return "· all accounts"
                 var prim = null
                 var arr = appWindow.accounts
                 for (var i = 0; i < arr.length; i++) if (arr[i].isPrimary) { prim = arr[i]; break }
-                return "· " + ((prim && prim.name) || "primary")
+                var scopeTxt = s === "all" ? "all accounts" : ((prim && prim.name) || "primary")
+                return "\uf007 " + sanitize(appWindow.userEmail) + "\n\uf093 " + scopeTxt
               }
-              color: appWindow.dim
+              color: appWindow.cOnVar
               font.family: appWindow.fontFamily
-              font.pixelSize: 12
-              anchors.verticalCenter: parent.verticalCenter
+              font.pixelSize: 10
               textFormat: Text.PlainText
+              lineHeight: 1.4
+              elide: Text.ElideRight
+              width: parent.width - 24
+            }
+
+            Item { height: 1; width: 1 }
+
+            Rectangle {
+              width: parent.width - 20
+              height: 1
+              color: appWindow.cOutlineVar
+            }
+
+            Item { width: 1; height: 6 }
+
+            Row {
+              leftPadding: 10
+              spacing: 6
+
+              PillButton {
+                text: appWindow.busy ? "…" : "Refresh"
+                onClicked: appWindow.refresh()
+              }
+              PillButton {
+                text: "Web"
+                onClicked: Qt.openUrlExternally(appWindow.baseUrl)
+              }
+              PillButton {
+                text: "Sign out"
+                enabled: !appWindow.mutationsBusy
+                onClicked: appWindow.signOut()
+              }
             }
           }
+        }
 
-          Row {
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 8
+        // ── page column ─────────────────────────────────────────────
+        Column {
+          width: parent.width - 220
+          height: parent.height
+          spacing: 0
 
-            ComboBox {
-              id: scopeBox
-              width: 170
-              model: ["Primary account", "All accounts"]
-              enabled: !appWindow.busy
-              onActivated: function(idx) {
-                var s = idx === 0 ? "primary" : "all"
-                if (s !== appWindow.scope) {
-                  appWindow.scope = s
+          // topbar
+          Item {
+            width: parent.width
+            height: 56
+
+            Row {
+              anchors.left: parent.left
+              anchors.leftMargin: 22
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: 12
+
+              ComboBox {
+                id: scopeBox
+                width: 160
+                height: 36
+                model: ["Primary account", "All accounts"]
+                enabled: !appWindow.busy
+                onActivated: function(idx) {
+                  var s = idx === 0 ? "primary" : "all"
+                  if (s !== appWindow.scope) {
+                    appWindow.scope = s
+                    appWindow.refresh()
+                  }
+                }
+                currentIndex: appWindow.scope === "all" ? 1 : 0
+              }
+
+              ComboBox {
+                id: rangeBox
+                width: 150
+                height: 36
+                model: ["Next 30 days", "Next 90 days", "Next 12 months"]
+                enabled: !appWindow.busy
+                onActivated: function(idx) {
+                  appWindow.chartDays = [30, 90, 365][idx]
                   appWindow.refresh()
                 }
+                currentIndex: [30, 90, 365].indexOf(appWindow.chartDays)
               }
-              currentIndex: appWindow.scope === "all" ? 1 : 0
-            }
 
-            ComboBox {
-              id: rangeBox
-              width: 150
-              model: ["Next 30 days", "Next 90 days", "Next 12 months"]
-              enabled: !appWindow.busy
-              onActivated: function(idx) {
-                appWindow.chartDays = [30, 90, 365][idx]
-                appWindow.refresh()
+              Text {
+                visible: appWindow.notice !== ""
+                text: appWindow.notice
+                color: appWindow.cGreen
+                font.family: appWindow.fontFamily
+                font.pixelSize: 11
+                textFormat: Text.PlainText
+                anchors.verticalCenter: parent.verticalCenter
               }
-              currentIndex: [30, 90, 365].indexOf(appWindow.chartDays)
-            }
 
-            PillButton {
-              text: appWindow.busy ? "…" : "Refresh"
-              onClicked: appWindow.refresh()
-            }
-
-            PillButton {
-              text: "Open web"
-              onClicked: Qt.openUrlExternally(appWindow.baseUrl)
-            }
-
-            PillButton {
-              text: "Sign out"
-              enabled: !appWindow.mutationsBusy
-              onClicked: appWindow.signOut()
-            }
-          }
-        }
-
-        Text {
-          visible: appWindow.lastError !== ""
-          text: appWindow.lastError
-          color: appWindow.red
-          font.family: appWindow.fontFamily
-          font.pixelSize: 12
-          textFormat: Text.PlainText
-          wrapMode: Text.WordWrap
-          width: parent.width
-        }
-
-        Text {
-          visible: appWindow.notice !== ""
-          text: appWindow.notice
-          color: appWindow.green
-          font.family: appWindow.fontFamily
-          font.pixelSize: 12
-          textFormat: Text.PlainText
-          width: parent.width
-        }
-
-        // tabs
-        Row {
-          spacing: 6
-
-          Repeater {
-            model: ["Overview", "Transactions", "Recurring"]
-
-            PillButton {
-              required property int index
-              required property var modelData
-              objectName: "tabBtn" + index
-              text: modelData
-              onClicked: appWindow.tab = index
-              background: Rectangle {
-                radius: 6
-                color: appWindow.tab === index ? appWindow.accent : appWindow.card
-                border.color: appWindow.border
+              Text {
+                visible: appWindow.lastError !== ""
+                text: appWindow.lastError
+                color: appWindow.cRed
+                font.family: appWindow.fontFamily
+                font.pixelSize: 11
+                textFormat: Text.PlainText
+                elide: Text.ElideRight
+                width: Math.min(420, parent.width - 400)
+                anchors.verticalCenter: parent.verticalCenter
               }
             }
           }
-        }
 
-        // tab content
-        StackLayout {
-          width: parent.width
-          height: {
-            var h = parent.height - 42 - 36 - 20
-            return Math.max(300, h)
-          }
-          currentIndex: appWindow.tab
+          Rectangle { width: parent.width; height: 1; color: appWindow.cOutlineVar }
 
-          // ── TAB 0: OVERVIEW ───────────────────────────────────────
-          Flickable {
-            id: overviewFlick
-            contentWidth: width
-            contentHeight: overviewCol.height + 20
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { }
+          StackLayout {
+            width: parent.width
+            height: parent.height - 57
+            currentIndex: appWindow.navPage
 
-            Column {
-              id: overviewCol
-              width: overviewFlick.width
-              spacing: 10
+            // ═══ PAGE 0: DASHBOARD ═══════════════════════════════════
+            Flickable {
+              id: dashFlick
+              contentWidth: width
+              contentHeight: dashCol.height + 24
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              ScrollBar.vertical: ScrollBar { }
 
-              // summary cards
-              Row {
-                width: parent.width
-                spacing: 10
-                visible: appWindow.dash !== null
+              Column {
+                id: dashCol
+                width: dashFlick.width
+                spacing: 14
 
-                Repeater {
-                  model: appWindow.dash ? [
-                    { label: "EXPECTED TODAY", value: appWindow.dash.summary.expectedToday, hero: true },
-                    { label: "END OF MONTH", value: appWindow.dash.summary.monthEnd },
-                    { label: "END OF YEAR", value: appWindow.dash.summary.yearEnd },
-                    { label: "IN 30 DAYS", value: appWindow.dash.summary.next30 }
-                  ] : []
+                // KPI row
+                Row {
+                  width: parent.width - 44
+                  x: 22
+                  spacing: 12
 
+                  KpiCard {
+                    width: (parent.width - 24) / 3
+                    title: "EXPECTED TODAY"
+                    bigValue: appWindow.fmtMoney(appWindow.dash ? appWindow.dash.summary.expectedToday : NaN)
+                    subLine: {
+                      var me = appWindow.dash ? appWindow.dash.summary.monthEnd : NaN
+                      return (me === me ? "month-end " + appWindow.fmtMoney(me, 0) : "—")
+                    }
+                    subColor: appWindow.valueColor(appWindow.dash ? appWindow.dash.summary.expectedToday : NaN)
+                    showSpark: true
+                  }
+
+                  KpiCard {
+                    width: (parent.width - 24) / 3
+                    title: "SPENDING (THIS MONTH)"
+                    bigValue: appWindow.fmtMoney(appWindow.monthOut, 0)
+                    subLine: appWindow.savRate + "% savings rate"
+                    subColor: appWindow.savRate >= 15 ? appWindow.cGreen : (appWindow.savRate >= 5 ? appWindow.cOrange : appWindow.cRed)
+                  }
+
+                  KpiCard {
+                    width: (parent.width - 24) / 3
+                    title: "YEAR END FORECAST"
+                    bigValue: appWindow.fmtMoney(appWindow.dash ? appWindow.dash.summary.yearEnd : NaN, 0)
+                    subLine: {
+                      var n30 = appWindow.dash ? appWindow.dash.summary.next30 : NaN
+                      return (n30 === n30 ? "in 30 days " + appWindow.fmtMoney(n30, 0) : "—")
+                    }
+                    subColor: appWindow.valueColor(appWindow.dash ? appWindow.dash.summary.yearEnd : NaN)
+                  }
+                }
+
+                // budget-by-category + cashflow row
+                Row {
+                  width: parent.width - 44
+                  x: 22
+                  spacing: 12
+
+                  // category spend card
                   Rectangle {
-                    required property var modelData
-                    width: (parent.width - 30) / 4
-                    height: 70
-                    radius: 10
-                    color: modelData.hero ? "#232a45" : appWindow.card
-                    border.color: modelData.hero ? appWindow.accent : appWindow.border
+                    width: (parent.width - 12) / 2
+                    height: 250
+                    radius: 14
+                    color: appWindow.cSurface
+                    border.color: appWindow.cOutline
 
                     Column {
                       anchors.fill: parent
-                      anchors.margins: 10
-                      spacing: 4
+                      anchors.margins: 16
+                      spacing: 10
 
                       Text {
-                        text: modelData.label
-                        color: appWindow.dim
+                        text: "SPENDING BY CATEGORY (THIS MONTH)"
+                        color: appWindow.cPrimary
                         font.family: appWindow.fontFamily
-                        font.pixelSize: 10
-                        font.letterSpacing: 1.2
+                        font.pixelSize: 11
                         font.bold: true
+                        font.letterSpacing: 1.6
                         textFormat: Text.PlainText
                       }
+
+                      Flow {
+                        width: parent.width
+                        spacing: 10
+
+                        Repeater {
+                          model: appWindow.catSpend
+
+                          CatBar {
+                            required property var modelData
+                            required property int index
+                            property int cIdx: index
+                            width: (parent.width - 20) / 3
+                            catName: modelData.name
+                            spent: modelData.spend
+                            barColor: [appWindow.cSecondary, appWindow.cPrimary, appWindow.cTertiary,
+                                       appWindow.cGreen, appWindow.cOrange, appWindow.cPrimaryDim][cIdx % 6]
+                            iconGlyph: ["\uf07a", "\uf0f5", "\uf0e7", "\uf1ad", "\uf015", "\uf02d"][cIdx % 6]
+                          }
+                        }
+                      }
+
                       Text {
-                        text: appWindow.fmtMoney(modelData.value)
-                        color: appWindow.valueColor(modelData.value)
+                        visible: appWindow.catSpend.length === 0
+                        text: "No spending recorded this month yet."
+                        color: appWindow.cOnVar
                         font.family: appWindow.fontFamily
-                        font.pixelSize: modelData.hero ? 22 : 17
+                        font.pixelSize: 11
+                        textFormat: Text.PlainText
+                      }
+                    }
+                  }
+
+                  // cashflow card
+                  Rectangle {
+                    width: (parent.width - 12) / 2
+                    height: 250
+                    radius: 14
+                    color: appWindow.cSurface
+                    border.color: appWindow.cOutline
+
+                    Column {
+                      anchors.fill: parent
+                      anchors.margins: 16
+                      spacing: 8
+
+                      Row {
+                        width: parent.width
+
+                        Text {
+                          text: "CASHFLOW (6 MONTHS)"
+                          color: appWindow.cPrimary
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          font.bold: true
+                          font.letterSpacing: 1.6
+                          textFormat: Text.PlainText
+                        }
+
+                        CashflowLegend {
+                          anchors.right: parent.right
+                          anchors.verticalCenter: parent.verticalCenter
+                        }
+                      }
+
+                      CashflowChart {
+                        width: parent.width
+                        height: parent.height - 46
+                        months: appWindow.cashflow
+                      }
+                    }
+                  }
+                }
+
+                // recent transactions + upcoming row
+                Row {
+                  width: parent.width - 44
+                  x: 22
+                  spacing: 12
+
+                  // recent transactions table
+                  Rectangle {
+                    width: (parent.width - 12) / 2
+                    height: 240
+                    radius: 14
+                    color: appWindow.cSurface
+                    border.color: appWindow.cOutline
+
+                    Column {
+                      anchors.fill: parent
+                      anchors.margins: 16
+                      spacing: 8
+
+                      Row {
+                        width: parent.width
+
+                        Text {
+                          text: "RECENT TRANSACTIONS"
+                          color: appWindow.cPrimary
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          font.bold: true
+                          font.letterSpacing: 1.6
+                          textFormat: Text.PlainText
+                        }
+
+                        Text {
+                          text: "Manage on Transactions →"
+                          color: appWindow.cOnVar
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 10
+                          anchors.right: parent.right
+                          textFormat: Text.PlainText
+                        }
+                      }
+
+                      Column {
+                        width: parent.width
+                        spacing: 2
+
+                        Repeater {
+                          model: appWindow.recentAdhocs()
+
+                          Row {
+                            id: recentRow
+                            required property var modelData
+                            required property int index
+                            width: parent.width
+                            height: 28
+                            spacing: 8
+
+                            Rectangle {
+                              width: parent.width
+                              height: 26
+                              radius: 6
+                              color: recentRow.index % 2 === 0 ? appWindow.cSurfaceHi : "transparent"
+                            }
+
+                            Text {
+                              x: 8
+                              width: 70
+                              text: appWindow.fmtDateUK(modelData.date)
+                              color: appWindow.cOnVar
+                              font.family: appWindow.fontFamily
+                              font.pixelSize: 10
+                              textFormat: Text.PlainText
+                              anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Text {
+                              x: 86
+                              width: parent.width - 200
+                              text: sanitize(modelData.label) + (modelData.category ? "  ·  " + sanitize(modelData.category) : "")
+                              color: appWindow.cOnSurface
+                              font.family: appWindow.fontFamily
+                              font.pixelSize: 11
+                              elide: Text.ElideRight
+                              textFormat: Text.PlainText
+                              anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Text {
+                              x: parent.width - 100
+                              width: 92
+                              text: (modelData.direction === "income" ? "+" : "-") + appWindow.fmtMoney(modelData.amount)
+                              color: modelData.direction === "income" ? appWindow.cGreen : appWindow.cRed
+                              font.family: appWindow.fontFamily
+                              font.pixelSize: 11
+                              font.bold: true
+                              horizontalAlignment: Text.AlignRight
+                              textFormat: Text.PlainText
+                              anchors.verticalCenter: parent.verticalCenter
+                            }
+                          }
+                        }
+                      }
+
+                      Text {
+                        visible: appWindow.recentAdhocs().length === 0
+                        text: "No transactions yet — add one from Transactions."
+                        color: appWindow.cOnVar
+                        font.family: appWindow.fontFamily
+                        font.pixelSize: 11
+                        textFormat: Text.PlainText
+                      }
+                    }
+                  }
+
+                  // upcoming bills
+                  Rectangle {
+                    width: (parent.width - 12) / 2
+                    height: 240
+                    radius: 14
+                    color: appWindow.cSurface
+                    border.color: appWindow.cOutline
+
+                    Column {
+                      anchors.fill: parent
+                      anchors.margins: 16
+                      spacing: 8
+
+                      Text {
+                        text: "UPCOMING BILLS"
+                        color: appWindow.cPrimary
+                        font.family: appWindow.fontFamily
+                        font.pixelSize: 11
                         font.bold: true
+                        font.letterSpacing: 1.6
+                        textFormat: Text.PlainText
+                      }
+
+                      Column {
+                        width: parent.width
+                        spacing: 2
+
+                        Repeater {
+                          model: appWindow.upcomingBills()
+
+                          Row {
+                            id: billRow
+                            required property var modelData
+                            required property int index
+                            width: parent.width
+                            height: 30
+
+                            Rectangle {
+                              width: parent.width
+                              height: 28
+                              radius: 6
+                              color: billRow.index % 2 === 0 ? appWindow.cSurfaceHi : "transparent"
+                            }
+
+                            Text {
+                              x: 8
+                              width: 70
+                              text: appWindow.fmtDateUK(modelData.date)
+                              color: appWindow.cOnVar
+                              font.family: appWindow.fontFamily
+                              font.pixelSize: 11
+                              textFormat: Text.PlainText
+                              anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Text {
+                              x: 86
+                              width: parent.width - 190
+                              text: sanitize(modelData.label)
+                              color: appWindow.cOnSurface
+                              font.family: appWindow.fontFamily
+                              font.pixelSize: 11
+                              elide: Text.ElideRight
+                              textFormat: Text.PlainText
+                              anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Text {
+                              x: parent.width - 96
+                              width: 88
+                              text: appWindow.fmtMoney(modelData.amount)
+                              color: appWindow.cRed
+                              font.family: appWindow.fontFamily
+                              font.pixelSize: 11
+                              font.bold: true
+                              horizontalAlignment: Text.AlignRight
+                              textFormat: Text.PlainText
+                              anchors.verticalCenter: parent.verticalCenter
+                            }
+                          }
+                        }
+                      }
+
+                      Text {
+                        visible: appWindow.upcomingBills().length === 0
+                        text: "No upcoming bills in the forecast window."
+                        color: appWindow.cOnVar
+                        font.family: appWindow.fontFamily
+                        font.pixelSize: 11
                         textFormat: Text.PlainText
                       }
                     }
                   }
                 }
-              }
 
-              // balance chart
-              Card {
-                width: parent.width
-                height: 240
-
-                Column {
-                  anchors.fill: parent
-                  anchors.margins: 12
-                  spacing: 6
-
-                  Text {
-                    text: "BALANCE FORECAST (" + appWindow.chartDays + " DAYS)"
-                    color: appWindow.dim
-                    font.family: appWindow.fontFamily
-                    font.pixelSize: 11
-                    font.bold: true
-                    font.letterSpacing: 1.2
-                    textFormat: Text.PlainText
-                  }
-
-                  ChartCanvas {
-                    width: parent.width
-                    height: parent.height - 30
-                    series: appWindow.series
-                    mode: "balance"
-                    symbol: appWindow.currencySymbol
-                  }
-                }
-              }
-
-              // in/out chart
-              Card {
-                width: parent.width
-                height: 160
-
-                Column {
-                  anchors.fill: parent
-                  anchors.margins: 12
-                  spacing: 6
-
-                  Text {
-                    text: "MONEY IN VS OUT (LAST 30 DAYS + FORECAST)"
-                    color: appWindow.dim
-                    font.family: appWindow.fontFamily
-                    font.pixelSize: 11
-                    font.bold: true
-                    font.letterSpacing: 1.2
-                    textFormat: Text.PlainText
-                  }
-
-                  ChartCanvas {
-                    width: parent.width
-                    height: parent.height - 30
-                    series: appWindow.series
-                    mode: "inout"
-                    symbol: appWindow.currencySymbol
-                  }
-                }
-              }
-
-              // accounts + upcoming
-              Row {
-                width: parent.width
-                spacing: 10
-
-                Card {
-                  width: (parent.width - 10) / 2
-                  height: accountsCol.height + 26
-                  implicitHeight: 180
+                // balance forecast chart (wide)
+                Rectangle {
+                  width: parent.width - 44
+                  x: 22
+                  height: 230
+                  radius: 14
+                  color: appWindow.cSurface
+                  border.color: appWindow.cOutline
 
                   Column {
-                    id: accountsCol
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 12
+                    anchors.fill: parent
+                    anchors.margins: 16
                     spacing: 6
 
                     Text {
-                      text: "ACCOUNTS"
-                      color: appWindow.dim
+                      text: "BALANCE FORECAST (" + appWindow.chartDays + " DAYS)"
+                      color: appWindow.cPrimary
                       font.family: appWindow.fontFamily
                       font.pixelSize: 11
                       font.bold: true
-                      font.letterSpacing: 1.2
+                      font.letterSpacing: 1.6
+                      textFormat: Text.PlainText
+                    }
+
+                    ChartCanvas {
+                      width: parent.width
+                      height: parent.height - 40
+                      series: appWindow.series
+                      mode: "balance"
+                      symbol: appWindow.currencySymbol
+                    }
+                  }
+                }
+
+                Item { width: 1; height: 8 }
+              }
+            }
+
+            // ═══ PAGE 1: TRANSACTIONS ════════════════════════════════
+            Flickable {
+              id: txFlick
+              contentWidth: width
+              contentHeight: txCol.height + 24
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              ScrollBar.vertical: ScrollBar { }
+
+              Column {
+                id: txCol
+                width: txFlick.width
+                spacing: 12
+
+                Row {
+                  x: 22
+                  spacing: 8
+
+                  PillButton {
+                    text: appWindow.mutationsBusy ? "…" : "+ Add transaction"
+                    enabled: !appWindow.mutationsBusy
+                    onClicked: txEditor.openFor(null)
+                  }
+                  PillButton {
+                    text: "+ Transfer between accounts"
+                    enabled: !appWindow.mutationsBusy
+                    onClicked: transferEditor.openFor()
+                  }
+                }
+
+                Card {
+                  x: 22
+                  width: parent.width - 44
+                  height: txAdhocCol.height + 24
+
+                  Column {
+                    id: txAdhocCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 14
+                    spacing: 4
+
+                    Text {
+                      text: "AD-HOC TRANSACTIONS (" + appWindow.adhocs.length + ")"
+                      color: appWindow.cPrimary
+                      font.family: appWindow.fontFamily
+                      font.pixelSize: 11
+                      font.bold: true
+                      font.letterSpacing: 1.6
+                      textFormat: Text.PlainText
+                    }
+
+                    Repeater {
+                      model: appWindow.adhocs
+
+                      Row {
+                        required property var modelData
+                        required property int index
+                        width: parent.width
+                        spacing: 8
+
+                        Text {
+                          width: 70
+                          text: appWindow.fmtDateUK(modelData.date)
+                          color: appWindow.cOnVar
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          textFormat: Text.PlainText
+                        }
+
+                        Text {
+                          width: parent.width - 70 - 100 - 160
+                          text: sanitize(modelData.label) + (modelData.category ? "  · " + sanitize(modelData.category) : "")
+                          color: appWindow.cOnSurface
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          elide: Text.ElideRight
+                          textFormat: Text.PlainText
+                        }
+
+                        Text {
+                          width: 100
+                          text: (modelData.direction === "income" ? "+" : "-") + appWindow.fmtMoney(modelData.amount)
+                          color: modelData.direction === "income" ? appWindow.cGreen : appWindow.cRed
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          font.bold: true
+                          textFormat: Text.PlainText
+                        }
+
+                        Row {
+                          width: 160
+                          spacing: 6
+                          PillButton {
+                            text: "Edit"
+                            enabled: !appWindow.mutationsBusy
+                            onClicked: txEditor.openFor(modelData)
+                          }
+                          PillButton {
+                            text: "Delete"
+                            enabled: !appWindow.mutationsBusy
+                            onClicked: appWindow.deleteAdhoc(modelData.id)
+                          }
+                        }
+                      }
+                    }
+
+                    Text {
+                      visible: appWindow.adhocs.length === 0
+                      text: "No ad-hoc transactions yet."
+                      color: appWindow.cOnVar
+                      font.family: appWindow.fontFamily
+                      font.pixelSize: 11
+                      textFormat: Text.PlainText
+                    }
+                  }
+                }
+
+                Item { width: 1; height: 6 }
+              }
+            }
+
+            // ═══ PAGE 2: RECURRING ═══════════════════════════════════
+            Flickable {
+              id: recFlick
+              contentWidth: width
+              contentHeight: recCol.height + 24
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              ScrollBar.vertical: ScrollBar { }
+
+              Column {
+                id: recCol
+                width: recFlick.width
+                spacing: 12
+
+                Row {
+                  x: 22
+                  spacing: 8
+
+                  PillButton {
+                    text: appWindow.mutationsBusy ? "…" : "+ Add repeat"
+                    enabled: !appWindow.mutationsBusy
+                    onClicked: repeatEditor.openFor(null)
+                  }
+                  PillButton {
+                    text: "+ Add recurring transfer"
+                    enabled: !appWindow.mutationsBusy
+                    onClicked: transferEditor.openForRecurring()
+                  }
+                }
+
+                // repeats
+                Card {
+                  x: 22
+                  width: parent.width - 44
+                  height: repCol.height + 24
+
+                  Column {
+                    id: repCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 14
+                    spacing: 4
+
+                    Text {
+                      text: "REPEATS (" + appWindow.repeats.length + ")"
+                      color: appWindow.cPrimary
+                      font.family: appWindow.fontFamily
+                      font.pixelSize: 11
+                      font.bold: true
+                      font.letterSpacing: 1.6
+                      textFormat: Text.PlainText
+                    }
+
+                    Repeater {
+                      model: appWindow.repeats
+
+                      Row {
+                        required property var modelData
+                        width: parent.width
+                        spacing: 8
+
+                        Text {
+                          width: 240
+                          text: sanitize(modelData.label) + "  ·  " + sanitize(modelData.category)
+                          color: appWindow.cOnSurface
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          elide: Text.ElideRight
+                          textFormat: Text.PlainText
+                        }
+
+                        Text {
+                          width: 150
+                          text: {
+                            var f = modelData.frequency
+                            var st = modelData.subType
+                            var txt = f
+                            if (f === "monthly" && st === "last-working-day") txt = "monthly · last working day"
+                            else if (f === "monthly" && st.indexOf("day-") === 0) txt = "monthly · day " + st.substring(4)
+                            else if (f === "weekly") txt = "weekly · " + st
+                            else if (f === "annually") txt = "annually · " + st
+                            return txt
+                          }
+                          color: appWindow.cOnVar
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          textFormat: Text.PlainText
+                        }
+
+                        Text {
+                          width: 100
+                          text: (modelData.direction === "income" ? "+" : "-") + appWindow.fmtMoney(modelData.amount)
+                          color: modelData.direction === "income" ? appWindow.cGreen : appWindow.cRed
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          font.bold: true
+                          textFormat: Text.PlainText
+                        }
+
+                        Text {
+                          width: 90
+                          text: modelData.nextDate ? appWindow.fmtDateUK(modelData.nextDate) : "—"
+                          color: appWindow.cOnVar
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          textFormat: Text.PlainText
+                        }
+
+                        Row {
+                          spacing: 6
+                          PillButton {
+                            text: "Edit"
+                            enabled: !appWindow.mutationsBusy
+                            onClicked: repeatEditor.openFor(modelData)
+                          }
+                          PillButton {
+                            text: "Delete"
+                            enabled: !appWindow.mutationsBusy
+                            onClicked: appWindow.deleteRepeat(modelData.id)
+                          }
+                        }
+                      }
+                    }
+
+                    Text {
+                      visible: appWindow.repeats.length === 0
+                      text: "No repeats yet — rent, salary, subscriptions belong here."
+                      color: appWindow.cOnVar
+                      font.family: appWindow.fontFamily
+                      font.pixelSize: 11
+                      textFormat: Text.PlainText
+                    }
+                  }
+                }
+
+                // one-off transfers
+                Card {
+                  x: 22
+                  width: parent.width - 44
+                  height: trCol.height + 24
+
+                  Column {
+                    id: trCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 14
+                    spacing: 4
+
+                    Text {
+                      text: "ONE-OFF TRANSFERS (" + appWindow.transfers.length + ")"
+                      color: appWindow.cPrimary
+                      font.family: appWindow.fontFamily
+                      font.pixelSize: 11
+                      font.bold: true
+                      font.letterSpacing: 1.6
+                      textFormat: Text.PlainText
+                    }
+
+                    Repeater {
+                      model: appWindow.transfers
+
+                      Row {
+                        required property var modelData
+                        width: parent.width
+                        spacing: 8
+
+                        Text {
+                          width: 70
+                          text: appWindow.fmtDateUK(modelData.date)
+                          color: appWindow.cOnVar
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          textFormat: Text.PlainText
+                        }
+
+                        Text {
+                          width: parent.width - 70 - 100 - 120
+                          text: sanitize(modelData.fromName) + "  →  " + sanitize(modelData.toName) + (modelData.label ? "  ·  " + sanitize(modelData.label) : "")
+                          color: appWindow.cOnSurface
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          elide: Text.ElideRight
+                          textFormat: Text.PlainText
+                        }
+
+                        Text {
+                          width: 100
+                          text: appWindow.fmtMoney(modelData.amount)
+                          color: appWindow.cPrimary
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          font.bold: true
+                          textFormat: Text.PlainText
+                        }
+
+                        Row {
+                          width: 120
+                          spacing: 6
+                          PillButton {
+                            text: "Delete"
+                            enabled: !appWindow.mutationsBusy
+                            onClicked: appWindow.deleteTransfer(modelData.id)
+                          }
+                        }
+                      }
+                    }
+
+                    Text {
+                      visible: appWindow.transfers.length === 0
+                      text: "No one-off transfers yet."
+                      color: appWindow.cOnVar
+                      font.family: appWindow.fontFamily
+                      font.pixelSize: 11
+                      textFormat: Text.PlainText
+                    }
+                  }
+                }
+
+                // recurring transfers
+                Card {
+                  x: 22
+                  width: parent.width - 44
+                  height: trefCol.height + 24
+
+                  Column {
+                    id: trefCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 14
+                    spacing: 4
+
+                    Text {
+                      text: "RECURRING TRANSFERS (" + appWindow.transferRepeats.length + ")"
+                      color: appWindow.cPrimary
+                      font.family: appWindow.fontFamily
+                      font.pixelSize: 11
+                      font.bold: true
+                      font.letterSpacing: 1.6
+                      textFormat: Text.PlainText
+                    }
+
+                    Repeater {
+                      model: appWindow.transferRepeats
+
+                      Row {
+                        required property var modelData
+                        width: parent.width
+                        spacing: 8
+
+                        Text {
+                          width: 220
+                          text: sanitize(modelData.fromName) + "  →  " + sanitize(modelData.toName) + (modelData.label ? "  ·  " + sanitize(modelData.label) : "")
+                          color: appWindow.cOnSurface
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          elide: Text.ElideRight
+                          textFormat: Text.PlainText
+                        }
+
+                        Text {
+                          width: 130
+                          text: {
+                            var f = modelData.frequency
+                            var st = modelData.subType
+                            var txt = f
+                            if (f === "monthly" && st === "last-working-day") txt = "monthly · last working day"
+                            else if (f === "monthly" && st.indexOf("day-") === 0) txt = "monthly · day " + st.substring(4)
+                            else if (f === "weekly") txt = "weekly · " + st
+                            return txt
+                          }
+                          color: appWindow.cOnVar
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          textFormat: Text.PlainText
+                        }
+
+                        Text {
+                          width: 100
+                          text: appWindow.fmtMoney(modelData.amount)
+                          color: appWindow.cPrimary
+                          font.family: appWindow.fontFamily
+                          font.pixelSize: 11
+                          font.bold: true
+                          textFormat: Text.PlainText
+                        }
+
+                        Row {
+                          spacing: 6
+                          PillButton { text: "Delete"; enabled: !appWindow.mutationsBusy; onClicked: appWindow.deleteTref(modelData.id) }
+                        }
+                      }
+                    }
+
+                    Text {
+                      visible: appWindow.transferRepeats.length === 0
+                      text: "No recurring transfers yet."
+                      color: appWindow.cOnVar
+                      font.family: appWindow.fontFamily
+                      font.pixelSize: 11
+                      textFormat: Text.PlainText
+                    }
+                  }
+                }
+
+                Item { width: 1; height: 6 }
+              }
+            }
+
+            // ═══ PAGE 3: ACCOUNTS ════════════════════════════════════
+            Flickable {
+              id: accFlick
+              contentWidth: width
+              contentHeight: accCol.height + 24
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              ScrollBar.vertical: ScrollBar { }
+
+              Column {
+                id: accCol
+                width: accFlick.width
+                spacing: 12
+
+                Rectangle {
+                  x: 22
+                  width: parent.width - 44
+                  height: accInner.height + 28
+                  radius: 14
+                  color: appWindow.cSurface
+                  border.color: appWindow.cOutline
+
+                  Column {
+                    id: accInner
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 14
+                    spacing: 10
+
+                    Text {
+                      text: "ACCOUNTS"
+                      color: appWindow.cPrimary
+                      font.family: appWindow.fontFamily
+                      font.pixelSize: 11
+                      font.bold: true
+                      font.letterSpacing: 1.6
                       textFormat: Text.PlainText
                     }
 
@@ -1661,94 +2889,113 @@ ApplicationWindow {
 
                       Row {
                         required property var modelData
+                        required property int index
                         width: parent.width
-                        spacing: 8
+                        height: 46
+
+                        Rectangle {
+                          width: parent.width
+                          height: 42
+                          radius: 10
+                          color: index % 2 === 0 ? appWindow.cSurfaceHi : appWindow.cSurface
+                        }
 
                         Text {
-                          width: parent.width - 120
-                          text: modelData.name + (modelData.isPrimary ? "  · primary" : "")
-                          color: appWindow.fg
+                          x: 14
+                          width: parent.width - 180
+                          text: sanitize(modelData.name) + (modelData.isPrimary ? "   ·  primary" : "")
+                          color: appWindow.cOnSurface
                           font.family: appWindow.fontFamily
                           font.pixelSize: 12
                           elide: Text.ElideRight
                           textFormat: Text.PlainText
+                          anchors.verticalCenter: parent.verticalCenter
                         }
 
                         Text {
+                          x: parent.width - 170
+                          width: 156
                           text: appWindow.fmtMoney(modelData.balanceNow)
                           color: {
                             var v = modelData.balanceNow
-                            if (v !== v) return appWindow.dim
-                            if (v < 0) return appWindow.red
-                            if (v < 500) return appWindow.orange
-                            return appWindow.fg
+                            if (v !== v) return appWindow.cOnVar
+                            if (v < 0) return appWindow.cRed
+                            if (v < 500) return appWindow.cOrange
+                            return appWindow.cOnSurface
                           }
                           font.family: appWindow.fontFamily
-                          font.pixelSize: 12
+                          font.pixelSize: 13
                           font.bold: true
+                          horizontalAlignment: Text.AlignRight
                           textFormat: Text.PlainText
+                          anchors.verticalCenter: parent.verticalCenter
                         }
                       }
                     }
                   }
                 }
 
-                Card {
-                  width: (parent.width - 10) / 2
-                  height: upcomingCol.height + 26
-                  implicitHeight: 180
+                // typical month in/out
+                Rectangle {
+                  x: 22
+                  width: parent.width - 44
+                  height: 110
+                  radius: 14
+                  color: appWindow.cSurface
+                  border.color: appWindow.cOutline
 
                   Column {
-                    id: upcomingCol
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 12
-                    spacing: 6
+                    anchors.fill: parent
+                    anchors.margins: 16
+                    spacing: 8
 
                     Text {
-                      text: "UPCOMING (NEXT 6)"
-                      color: appWindow.dim
+                      text: "TYPICAL MONTH"
+                      color: appWindow.cPrimary
                       font.family: appWindow.fontFamily
                       font.pixelSize: 11
                       font.bold: true
-                      font.letterSpacing: 1.2
+                      font.letterSpacing: 1.6
                       textFormat: Text.PlainText
                     }
 
-                    Repeater {
-                      model: appWindow.dash ? (appWindow.dash.upcoming || []).slice(0, 6) : []
+                    Row {
+                      spacing: 30
 
-                      Row {
-                        required property var modelData
-                        width: parent.width
-                        spacing: 8
-
+                      Column {
+                        spacing: 2
+                        Text { text: "INCOME"; color: appWindow.cOnVar; font.family: appWindow.fontFamily; font.pixelSize: 10; font.letterSpacing: 1.2; textFormat: Text.PlainText }
                         Text {
-                          width: 66
-                          text: appWindow.fmtDateUK(modelData.date)
-                          color: appWindow.dim
+                          text: appWindow.dash ? "+" + appWindow.fmtMoney(appWindow.dash.summary.monthlyIncome, 0) : "—"
+                          color: appWindow.cGreen
                           font.family: appWindow.fontFamily
-                          font.pixelSize: 11
+                          font.pixelSize: 19
+                          font.bold: true
                           textFormat: Text.PlainText
                         }
+                      }
 
+                      Column {
+                        spacing: 2
+                        Text { text: "EXPENSES"; color: appWindow.cOnVar; font.family: appWindow.fontFamily; font.pixelSize: 10; font.letterSpacing: 1.2; textFormat: Text.PlainText }
                         Text {
-                          width: parent.width - 66 - 80 - 16
-                          text: sanitize(modelData.label)
-                          color: appWindow.fg
+                          text: appWindow.dash ? "-" + appWindow.fmtMoney(appWindow.dash.summary.monthlyExpenses, 0) : "—"
+                          color: appWindow.cRed
                           font.family: appWindow.fontFamily
-                          font.pixelSize: 11
-                          elide: Text.ElideRight
+                          font.pixelSize: 19
+                          font.bold: true
                           textFormat: Text.PlainText
                         }
+                      }
 
+                      Column {
+                        spacing: 2
+                        Text { text: "NET"; color: appWindow.cOnVar; font.family: appWindow.fontFamily; font.pixelSize: 10; font.letterSpacing: 1.2; textFormat: Text.PlainText }
                         Text {
-                          width: 80
-                          text: (modelData.amount >= 0 ? "+" : "-") + appWindow.currencySymbol + Math.abs(modelData.amount).toFixed(2)
-                          color: appWindow.amountColor(modelData.amount)
+                          text: appWindow.dash ? appWindow.fmtMoney(appWindow.dash.summary.monthlyIncome - appWindow.dash.summary.monthlyExpenses, 0) : "—"
+                          color: appWindow.cOnSurface
                           font.family: appWindow.fontFamily
-                          font.pixelSize: 11
+                          font.pixelSize: 19
                           font.bold: true
                           textFormat: Text.PlainText
                         }
@@ -1756,440 +3003,8 @@ ApplicationWindow {
                     }
                   }
                 }
-              }
-            }
-          }
 
-          // ── TAB 1: TRANSACTIONS ────────────────────────────────────
-          Flickable {
-            id: txFlick
-            contentWidth: width
-            contentHeight: txCol.height + 20
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { }
-
-            Column {
-              id: txCol
-              width: txFlick.width
-              spacing: 10
-
-              Row {
-                spacing: 8
-
-                PillButton {
-                  id: addTxButton
-                  objectName: "addTxButton"
-                  text: appWindow.mutationsBusy ? "…" : "+ Add transaction"
-                  enabled: !appWindow.mutationsBusy
-                  onClicked: txEditor.openFor(null)
-                }
-                PillButton {
-                  text: "+ Transfer between accounts"
-                  enabled: !appWindow.mutationsBusy
-                  onClicked: transferEditor.openFor()
-                }
-              }
-
-              // section: ad-hoc transactions
-              Card {
-                width: parent.width
-                height: txAdhocCol.height + 24
-
-                Column {
-                  id: txAdhocCol
-                  anchors.left: parent.left
-                  anchors.right: parent.right
-                  anchors.top: parent.top
-                  anchors.margins: 12
-                  spacing: 4
-
-                  Text {
-                    text: "AD-HOC TRANSACTIONS (" + appWindow.adhocs.length + ")"
-                    color: appWindow.dim
-                    font.family: appWindow.fontFamily
-                    font.pixelSize: 11
-                    font.bold: true
-                    font.letterSpacing: 1.2
-                    textFormat: Text.PlainText
-                  }
-
-                  Repeater {
-                    model: appWindow.adhocs
-
-                    Row {
-                      required property var modelData
-                      required property int index
-                      width: parent.width
-                      spacing: 8
-
-                      Text {
-                        width: 66
-                        text: appWindow.fmtDateUK(modelData.date)
-                        color: appWindow.dim
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        textFormat: Text.PlainText
-                      }
-
-                      Text {
-                        width: parent.width - 66 - 90 - 150
-                        text: sanitize(modelData.label) + (modelData.category ? "  · " + sanitize(modelData.category) : "")
-                        color: appWindow.fg
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        elide: Text.ElideRight
-                        textFormat: Text.PlainText
-                      }
-
-                      Text {
-                        width: 90
-                        text: {
-                          var sign = modelData.direction === "income" ? "+" : "-"
-                          return sign + appWindow.fmtMoney(modelData.amount)
-                        }
-                        color: modelData.direction === "income" ? appWindow.green : appWindow.red
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        font.bold: true
-                        textFormat: Text.PlainText
-                      }
-
-                      Row {
-                        width: 150
-                        spacing: 4
-                        PillButton {
-                          text: "Edit"
-                          enabled: !appWindow.mutationsBusy
-                          onClicked: txEditor.openFor(modelData)
-                        }
-                        PillButton {
-                          text: "Delete"
-                          enabled: !appWindow.mutationsBusy
-                          onClicked: appWindow.deleteAdhoc(modelData.id)
-                        }
-                      }
-                    }
-                  }
-
-                  Text {
-                    visible: appWindow.adhocs.length === 0
-                    text: "No ad-hoc transactions yet — add your first one above."
-                    color: appWindow.dim
-                    font.family: appWindow.fontFamily
-                    font.pixelSize: 11
-                    textFormat: Text.PlainText
-                  }
-                }
-              }
-            }
-          }
-
-          // ── TAB 2: RECURRING ───────────────────────────────────────
-          Flickable {
-            id: recFlick
-            contentWidth: width
-            contentHeight: recCol.height + 20
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { }
-
-            Column {
-              id: recCol
-              width: recFlick.width
-              spacing: 10
-
-              Row {
-                spacing: 8
-
-                PillButton {
-                  text: appWindow.mutationsBusy ? "…" : "+ Add repeat"
-                  enabled: !appWindow.mutationsBusy
-                  onClicked: repeatEditor.openFor(null)
-                }
-                PillButton {
-                  text: "+ Add recurring transfer"
-                  enabled: !appWindow.mutationsBusy
-                  onClicked: transferEditor.openForRecurring()
-                }
-              }
-
-              // repeats
-              Card {
-                width: parent.width
-                height: repCol.height + 24
-
-                Column {
-                  id: repCol
-                  anchors.left: parent.left
-                  anchors.right: parent.right
-                  anchors.top: parent.top
-                  anchors.margins: 12
-                  spacing: 4
-
-                  Text {
-                    text: "REPEATS (" + appWindow.repeats.length + ")"
-                    color: appWindow.dim
-                    font.family: appWindow.fontFamily
-                    font.pixelSize: 11
-                    font.bold: true
-                    font.letterSpacing: 1.2
-                    textFormat: Text.PlainText
-                  }
-
-                  Repeater {
-                    model: appWindow.repeats
-
-                    Row {
-                      required property var modelData
-                      required property int index
-                      width: parent.width
-                      spacing: 8
-
-                      Text {
-                        width: 260
-                        text: sanitize(modelData.label) + "  · " + sanitize(modelData.category)
-                        color: appWindow.fg
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        elide: Text.ElideRight
-                        textFormat: Text.PlainText
-                      }
-
-                      Text {
-                        width: 130
-                        text: {
-                          var f = modelData.frequency
-                          var st = modelData.subType
-                          var txt = f
-                          if (f === "monthly" && st === "last-working-day") txt = "monthly · last working day"
-                          else if (f === "monthly" && st.indexOf("day-") === 0) txt = "monthly · day " + st.substring(4)
-                          else if (f === "weekly") txt = "weekly · " + st
-                          else if (f === "annually") txt = "annually · " + st
-                          return txt
-                        }
-                        color: appWindow.dim
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        elide: Text.ElideRight
-                        textFormat: Text.PlainText
-                      }
-
-                      Text {
-                        width: 90
-                        text: (modelData.direction === "income" ? "+" : "-") + appWindow.fmtMoney(modelData.amount)
-                        color: modelData.direction === "income" ? appWindow.green : appWindow.red
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        font.bold: true
-                        textFormat: Text.PlainText
-                      }
-
-                      Text {
-                        width: 100
-                        text: modelData.nextDate ? appWindow.fmtDateUK(modelData.nextDate) : "—"
-                        color: appWindow.dim
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        textFormat: Text.PlainText
-                      }
-
-                      Row {
-                        spacing: 4
-                        PillButton {
-                          text: "Edit"
-                          enabled: !appWindow.mutationsBusy
-                          onClicked: repeatEditor.openFor(modelData)
-                        }
-                        PillButton {
-                          text: "Delete"
-                          enabled: !appWindow.mutationsBusy
-                          onClicked: appWindow.deleteRepeat(modelData.id)
-                        }
-                      }
-                    }
-                  }
-
-                  Text {
-                    visible: appWindow.repeats.length === 0
-                    text: "No repeats yet — rent, salary, subscriptions belong here."
-                    color: appWindow.dim
-                    font.family: appWindow.fontFamily
-                    font.pixelSize: 11
-                    textFormat: Text.PlainText
-                  }
-                }
-              }
-
-              // one-off transfers
-              Card {
-                width: parent.width
-                height: trCol.height + 24
-
-                Column {
-                  id: trCol
-                  anchors.left: parent.left
-                  anchors.right: parent.right
-                  anchors.top: parent.top
-                  anchors.margins: 12
-                  spacing: 4
-
-                  Text {
-                    text: "ONE-OFF TRANSFERS (" + appWindow.transfers.length + ")"
-                    color: appWindow.dim
-                    font.family: appWindow.fontFamily
-                    font.pixelSize: 11
-                    font.bold: true
-                    font.letterSpacing: 1.2
-                    textFormat: Text.PlainText
-                  }
-
-                  Repeater {
-                    model: appWindow.transfers
-
-                    Row {
-                      required property var modelData
-                      required property int index
-                      width: parent.width
-                      spacing: 8
-
-                      Text {
-                        width: 66
-                        text: appWindow.fmtDateUK(modelData.date)
-                        color: appWindow.dim
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        textFormat: Text.PlainText
-                      }
-
-                      Text {
-                        width: parent.width - 66 - 90 - 120
-                        text: sanitize(modelData.fromName) + " → " + sanitize(modelData.toName) + (modelData.label ? "  · " + sanitize(modelData.label) : "")
-                        color: appWindow.fg
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        elide: Text.ElideRight
-                        textFormat: Text.PlainText
-                      }
-
-                      Text {
-                        width: 90
-                        text: appWindow.fmtMoney(modelData.amount)
-                        color: appWindow.accent
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        font.bold: true
-                        textFormat: Text.PlainText
-                      }
-
-                      Row {
-                        width: 120
-                        spacing: 4
-                        PillButton {
-                          text: "Delete"
-                          enabled: !appWindow.mutationsBusy
-                          onClicked: appWindow.deleteTransfer(modelData.id)
-                        }
-                      }
-                    }
-                  }
-
-                  Text {
-                    visible: appWindow.transfers.length === 0
-                    text: "No one-off transfers yet."
-                    color: appWindow.dim
-                    font.family: appWindow.fontFamily
-                    font.pixelSize: 11
-                    textFormat: Text.PlainText
-                  }
-                }
-              }
-
-              // recurring transfers
-              Card {
-                width: parent.width
-                height: trefCol.height + 24
-
-                Column {
-                  id: trefCol
-                  anchors.left: parent.left
-                  anchors.right: parent.right
-                  anchors.top: parent.top
-                  anchors.margins: 12
-                  spacing: 4
-
-                  Text {
-                    text: "RECURRING TRANSFERS (" + appWindow.transferRepeats.length + ")"
-                    color: appWindow.dim
-                    font.family: appWindow.fontFamily
-                    font.pixelSize: 11
-                    font.bold: true
-                    font.letterSpacing: 1.2
-                    textFormat: Text.PlainText
-                  }
-
-                  Repeater {
-                    model: appWindow.transferRepeats
-
-                    Row {
-                      required property var modelData
-                      required property int index
-                      width: parent.width
-                      spacing: 8
-
-                      Text {
-                        width: 220
-                        text: sanitize(modelData.fromName) + " → " + sanitize(modelData.toName) + (modelData.label ? "  · " + sanitize(modelData.label) : "")
-                        color: appWindow.fg
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        elide: Text.ElideRight
-                        textFormat: Text.PlainText
-                      }
-
-                      Text {
-                        width: 110
-                        text: {
-                          var f = modelData.frequency
-                          var st = modelData.subType
-                          var txt = f
-                          if (f === "monthly" && st === "last-working-day") txt = "monthly · last working day"
-                          else if (f === "monthly" && st.indexOf("day-") === 0) txt = "monthly · day " + st.substring(4)
-                          else if (f === "weekly") txt = "weekly · " + st
-                          return txt
-                        }
-                        color: appWindow.dim
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        textFormat: Text.PlainText
-                      }
-
-                      Text {
-                        width: 90
-                        text: appWindow.fmtMoney(modelData.amount)
-                        color: appWindow.accent
-                        font.family: appWindow.fontFamily
-                        font.pixelSize: 11
-                        font.bold: true
-                        textFormat: Text.PlainText
-                      }
-
-                      Row {
-                        spacing: 4
-                        PillButton { text: "Delete"; enabled: !appWindow.mutationsBusy; onClicked: appWindow.deleteTref(modelData.id) }
-                      }
-                    }
-                  }
-
-                  Text {
-                    visible: appWindow.transferRepeats.length === 0
-                    text: "No recurring transfers yet."
-                    color: appWindow.dim
-                    font.family: appWindow.fontFamily
-                    font.pixelSize: 11
-                    textFormat: Text.PlainText
-                  }
-                }
+                Item { width: 1; height: 6 }
               }
             }
           }
@@ -2197,7 +3012,6 @@ ApplicationWindow {
       }
     }
   }
-
   // ── EDITORS ──────────────────────────────────────────────────────────
   // Transaction editor (add/edit ad-hoc)
   Popup {
