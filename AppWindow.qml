@@ -230,10 +230,9 @@ ApplicationWindow {
     property string buffer: ""
     command: ["/usr/bin/timeout", "-k", "2", "10", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
-      "test -f \"$__OMAFIN_SESSION_FILE__\" || exit 9; " +
-      "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\") || exit 9; " +
-      "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 9; " +
-      "/usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" --connect-timeout 5 --max-time 8 " +
+      "/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" check \"$__OMAFIN_INSTANCE__\" || exit 9; " +
+      "/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" read \"$__OMAFIN_INSTANCE__\" | " +
+      "/usr/bin/curl -sS -b - --connect-timeout 5 --max-time 8 " +
       "\"$__OMAFIN_URL__/api/profile\" 2>&1 | /usr/bin/head -c 4000"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
@@ -309,10 +308,19 @@ ApplicationWindow {
   // Environment for all subprocesses. Every value is QML-generated:
   // baseUrl passes structural validation (no quotes/whitespace/shell metas),
   // sessionFile/sessionDir are derived from it inside the state directory.
+  readonly property string pluginDir: {
+    var h = Quickshell.env("HOME") || "/"
+    return h + "/.config/omarchy/plugins/com.github.linuxgameruk.omafinsight"
+  }
+  readonly property string instanceName: {
+    var u = String(baseUrl).replace(/^https?:\/\//, "")
+    var host = u.split("/")[0]
+    return /^[A-Za-z0-9._-]+$/.test(host) ? host : "invalid"
+  }
   property var procEnv: ({
-    "__OMAFIN_URL__": baseUrl,
-    "__OMAFIN_SESSION_FILE__": sessionFile,
-    "__OMAFIN_SESSION_DIR__": sessionSvc.sessionDirFor(baseUrl)
+    "__OMAFIN_INSTANCE__": instanceName,
+    "__OMAFIN_PLUGIN_DIR__": pluginDir,
+    "__OMAFIN_URL__": baseUrl
   })
 
   Process {
@@ -326,21 +334,17 @@ ApplicationWindow {
     environment: appWindow.procEnv
     command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
-      "/usr/bin/mkdir -p \"$__OMAFIN_SESSION_DIR__\" && /usr/bin/chmod 700 \"$__OMAFIN_SESSION_DIR__\" || exit 1; " +
-      "_rd=$(/usr/bin/realpath \"$__OMAFIN_SESSION_DIR__\") || exit 1; " +
-      "_di=$(/usr/bin/stat -c '%F:%u:%a' \"$_rd\") || exit 1; " +
-      "[ \"$_di\" = \"directory:$EUID:700\" ] || exit 1; " +
-      "_t=$(/usr/bin/mktemp -d \"$_rd/auth.XXXXXX\") || exit 1; " +
-      "trap '/usr/bin/rm -rf \"$_t\"' EXIT; " +
-      "_f=\"$_t/body\"; _j=\"$_t/jar\"; " +
-      "while IFS= read -r _l; do [ \"$_l\" = __OMAFIN_EOF__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_f\"; " +
-      "/usr/bin/chmod 600 \"$_f\"; " +
-      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 10 -c \"$_j\" " +
-      "-o \"$_t/out\" -w '%{http_code}' -H 'Content-Type: application/json' " +
-      "--data @\"$_f\" \"$__OMAFIN_URL__/api/auth/login\" 2>&1 | /usr/bin/head -c 8); " +
-      "if [ \"$code\" = 200 ] && /usr/bin/chmod 600 \"$_j\" 2>/dev/null && /usr/bin/test \"$(/usr/bin/stat -c '%F:%u:%a:%h' \"$_j\" 2>/dev/null)\" = \"regular file:$EUID:600:1\"; then " +
-      "/usr/bin/mv -f \"$_j\" \"$__OMAFIN_SESSION_FILE__\"; fi; " +
-      "/usr/bin/cat \"$_t/out\" 2>/dev/null | /usr/bin/head -c 4000; printf '\\n__CODE__%s' \"$code\""]
+      "_w=$(/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" work \"$__OMAFIN_INSTANCE__\") || exit 1; " +
+      "trap '/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" rmtree \"$__OMAFIN_INSTANCE__\" \"$(basename \"$_w\")\"' EXIT; " +
+      "_b=\"$_w/body\"; " +
+      "while IFS= read -r _l; do [ \"$_l\" = __OMAFIN_EOF__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_b\"; " +
+      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 10 -c \"$_w/jar\" " +
+      "-o \"$_w/out\" -w '%{http_code}' " +
+      "-H 'Content-Type: application/json' " +
+      "--data @\"$_b\" \"$__OMAFIN_URL__/api/auth/login\" 2>&1 | /usr/bin/head -c 8); " +
+      "if [ \"$code\" = 200 ]; then /usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" write \"$__OMAFIN_INSTANCE__\" < \"$_w/jar\"; fi; " +
+      "/usr/bin/cat \"$_w/out\" 2>/dev/null | /usr/bin/head -c 4000; " +
+      "printf '\\n__CODE__%s' \"$code\""]
     onStarted: {
       write(_authBody + '\n__OMAFIN_EOF__\n')
       _authBody = ""
@@ -423,21 +427,17 @@ ApplicationWindow {
     environment: appWindow.procEnv
     command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
-      "/usr/bin/mkdir -p \"$__OMAFIN_SESSION_DIR__\" && /usr/bin/chmod 700 \"$__OMAFIN_SESSION_DIR__\" || exit 1; " +
-      "_rd=$(/usr/bin/realpath \"$__OMAFIN_SESSION_DIR__\") || exit 1; " +
-      "_di=$(/usr/bin/stat -c '%F:%u:%a' \"$_rd\") || exit 1; " +
-      "[ \"$_di\" = \"directory:$EUID:700\" ] || exit 1; " +
-      "_t=$(/usr/bin/mktemp -d \"$_rd/reg.XXXXXX\") || exit 1; " +
-      "trap '/usr/bin/rm -rf \"$_t\"' EXIT; " +
-      "_f=\"$_t/body\"; _j=\"$_t/jar\"; " +
-      "while IFS= read -r _l; do [ \"$_l\" = __OMAFIN_EOF__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_f\"; " +
-      "/usr/bin/chmod 600 \"$_f\"; " +
-      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 10 -c \"$_j\" " +
-      "-o \"$_t/out\" -w '%{http_code}' -H 'Content-Type: application/json' " +
-      "--data @\"$_f\" \"$__OMAFIN_URL__/api/auth/register\" 2>&1 | /usr/bin/head -c 8); " +
-      "if [ \"$code\" = 200 ] && /usr/bin/chmod 600 \"$_j\" 2>/dev/null && /usr/bin/test \"$(/usr/bin/stat -c '%F:%u:%a:%h' \"$_j\" 2>/dev/null)\" = \"regular file:$EUID:600:1\"; then " +
-      "/usr/bin/mv -f \"$_j\" \"$__OMAFIN_SESSION_FILE__\"; fi; " +
-      "/usr/bin/cat \"$_t/out\" 2>/dev/null | /usr/bin/head -c 4000; printf '\\n__CODE__%s' \"$code\""]
+      "_w=$(/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" work \"$__OMAFIN_INSTANCE__\") || exit 1; " +
+      "trap '/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" rmtree \"$__OMAFIN_INSTANCE__\" \"$(basename \"$_w\")\"' EXIT; " +
+      "_b=\"$_w/body\"; " +
+      "while IFS= read -r _l; do [ \"$_l\" = __OMAFIN_EOF__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_b\"; " +
+      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 10 -c \"$_w/jar\" " +
+      "-o \"$_w/out\" -w '%{http_code}' " +
+      "-H 'Content-Type: application/json' " +
+      "--data @\"$_b\" \"$__OMAFIN_URL__/api/auth/register\" 2>&1 | /usr/bin/head -c 8); " +
+      "if [ \"$code\" = 200 ]; then /usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" write \"$__OMAFIN_INSTANCE__\" < \"$_w/jar\"; fi; " +
+      "/usr/bin/cat \"$_w/out\" 2>/dev/null | /usr/bin/head -c 4000; " +
+      "printf '\\n__CODE__%s' \"$code\""]
     onStarted: {
       write(_authBody + '\n__OMAFIN_EOF__\n')
       _authBody = ""
@@ -517,17 +517,15 @@ ApplicationWindow {
     stdinEnabled: true
     command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
-      "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null) || exit 1; " +
-      "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 1; " +
-      "_t=$(/usr/bin/mktemp -d \"$__OMAFIN_WORK_DIR__/onb.XXXXXX\") || exit 1; " +
-      "trap '/usr/bin/rm -rf \"$_t\"' EXIT; " +
-      "_f=\"$_t/body\"; " +
-      "while IFS= read -r _l; do [ \"$_l\" = __EOFMUT__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_f\"; " +
-      "/usr/bin/chmod 600 \"$_f\"; " +
-      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 10 -b \"$__OMAFIN_SESSION_FILE__\" " +
-      "-o \"$_t/out\" -w '%{http_code}' -H 'Content-Type: application/json' " +
+      "set -o pipefail; " +
+      "_w=$(/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" work \"$__OMAFIN_INSTANCE__\") || exit 1; " +
+      "trap '/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" rmtree \"$__OMAFIN_INSTANCE__\" \"$(basename \"$_w\")\"' EXIT; " +
+      "_f=\"$_w/body\"; " +
+      "while IFS= read -r _l; do [ \"$_l\" = __EOFMUT__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_f\"; /usr/bin/chmod 600 \"$_f\"; " +
+      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 10 -b - " +
+      "-o \"$_w/out\" -w '%{http_code}' -H 'Content-Type: application/json' " +
       "--data @\"$_f\" \"$__OMAFIN_URL__/api/onboarding\" 2>&1 | /usr/bin/head -c 8); " +
-      "/usr/bin/cat \"$_t/out\" 2>/dev/null | /usr/bin/head -c 2000; printf '\\n__CODE__%s' \"$code\""]
+      "/usr/bin/cat \"$_w/out\" 2>/dev/null | /usr/bin/head -c 2000; printf '\\n__CODE__%s' \"$code\""]
     onStarted: { write(body + "\n__EOFMUT__\n"); body = "" }
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
@@ -588,12 +586,9 @@ ApplicationWindow {
     _outstanding = 3
     var myCycle = _cycle
     procEnv = ({
-      "__OMAFIN_URL__": baseUrl,
-      "__OMAFIN_SESSION_FILE__": sessionFile,
-      "__OMAFIN_SESSION_DIR__": sessionSvc.sessionDirFor(baseUrl),
-      "__OMAFIN_WORK_DIR__": sessionSvc.sessionDirFor(baseUrl),
-      "__OMAFIN_FETCH_URL__": baseUrl + "/api/dashboard" + (scope === "all" ? "?account=all" : ""),
-      "__OMAFIN_CHART_URL__": baseUrl + "/api/chart?days=" + chartDays + "&back=30" + (scope === "all" ? "&account=all" : "")
+      "__OMAFIN_INSTANCE__": instanceName,
+      "__OMAFIN_PLUGIN_DIR__": pluginDir,
+      "__OMAFIN_URL__": baseUrl
     })
     dashProc.fetchCycle = myCycle
     chartProc.fetchCycle = myCycle
@@ -719,10 +714,8 @@ ApplicationWindow {
     property string buffer: ""
     command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
-      "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null) || exit 0; " +
-      "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 0; " +
-      "/usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
-      "--connect-timeout 5 --max-time 10 \"$__OMAFIN_FETCH_URL__\" 2>&1 | /usr/bin/head -c 400000"]
+      "/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" read \"$__OMAFIN_INSTANCE__\" | " +
+      "/usr/bin/curl -sS -b - --connect-timeout 5 --max-time 10 \"$__OMAFIN_FETCH_URL__\" 2>&1 | /usr/bin/head -c 400000"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (dashProc.buffer.length + s.length <= 400000) dashProc.buffer += s + "\n"
@@ -760,10 +753,8 @@ ApplicationWindow {
     property string buffer: ""
     command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
-      "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null) || exit 0; " +
-      "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 0; " +
-      "/usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
-      "--connect-timeout 5 --max-time 10 \"$__OMAFIN_CHART_URL__\" 2>&1 | /usr/bin/head -c 400000"]
+      "/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" read \"$__OMAFIN_INSTANCE__\" | " +
+      "/usr/bin/curl -sS -b - --connect-timeout 5 --max-time 10 \"$__OMAFIN_CHART_URL__\" 2>&1 | /usr/bin/head -c 400000"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (chartProc.buffer.length + s.length <= 400000) chartProc.buffer += s + "\n"
@@ -800,9 +791,9 @@ ApplicationWindow {
     property string buffer: ""
     command: ["/usr/bin/timeout", "-k", "2", "20", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
-      "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null) || exit 0; " +
-      "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 0; " +
-      "emit() { echo \"__$1__\"; /usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" --connect-timeout 5 --max-time 8 \"$__OMAFIN_URL__/api/$2\" 2>&1 | /usr/bin/head -c " + appWindow.capSection + "; echo; }; " +
+      "/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" read \"$__OMAFIN_INSTANCE__\" | " +
+      "/usr/bin/curl -sS -b - " +
+      "emit() { echo \"__$1__\"; /usr/bin/curl -sS -b - --connect-timeout 5 --max-time 8 \"$__OMAFIN_URL__/api/$2\" 2>&1 | /usr/bin/head -c " + appWindow.capSection + "; echo; }; " +
       "emit ADHOCS adhoc; emit REPEATS repeats; emit TRANSFERS transfers; emit TREFS transfers/recurring; emit CATS categories"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
@@ -862,17 +853,13 @@ ApplicationWindow {
     stdinEnabled: true
     command: ["/usr/bin/timeout", "-k", "2", "15", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
-      "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null) || exit 1; " +
-      "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 1; " +
-      "_t=$(/usr/bin/mktemp -d \"$__OMAFIN_WORK_DIR__/mut.XXXXXX\") || exit 1; " +
-      "trap '/usr/bin/rm -rf \"$_t\"' EXIT; " +
-      "_f=\"$_t/body\"; " +
-      (hasBodyFlag ? "while IFS= read -r _l; do [ \"$_l\" = __EOFMUT__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_f\"; /usr/bin/chmod 600 \"$_f\"; " : "") +
-      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 12 -b \"$__OMAFIN_SESSION_FILE__\" " +
-      "-o \"$_t/out\" -w '%{http_code}' -X \"$__OMAFIN_METHOD__\" -H 'Content-Type: application/json' " +
+      "_w=$(/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" work \"$__OMAFIN_INSTANCE__\") || exit 1; " +
+      "trap '/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" rmtree \"$__OMAFIN_INSTANCE__\" \"$(basename \"$_w\")\"' EXIT; " +
+      "_f=\"$_w/body\"; " +
+      "-o \"$_w/out\" -w '%{http_code}' -X \"$__OMAFIN_METHOD__\" -H 'Content-Type: application/json' " +
       (hasBodyFlag ? "--data @\"$_f\" " : "") +
       "\"$__OMAFIN_URL__$__OMAFIN_PATH__\" 2>&1 | /usr/bin/head -c 8); " +
-      "/usr/bin/cat \"$_t/out\" 2>/dev/null | /usr/bin/head -c 2000; printf '\\n__CODE__%s' \"$code\""]
+      "/usr/bin/cat \"$_w/out\" 2>/dev/null | /usr/bin/head -c 2000; printf '\\n__CODE__%s' \"$code\""]
     onStarted: {
       if (bodyJson !== "") { write(bodyJson + "\n__EOFMUT__\n"); bodyJson = "" }
     }
@@ -988,12 +975,7 @@ ApplicationWindow {
     running: false
     environment: appWindow.procEnv
     command: ["/usr/bin/timeout", "-k", "2", "10", "/usr/bin/bash", "-c",
-      "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null); " +
-      "if [ \"$_s\" = \"regular file:$EUID:600:1\"; then " +
-      "/usr/bin/curl -sS --connect-timeout 5 --max-time 8 -X POST -b \"$__OMAFIN_SESSION_FILE__\" " +
-      "\"$__OMAFIN_URL__/api/auth/logout\" >/dev/null 2>&1; fi; " +
-      "/usr/bin/rm -f \"$__OMAFIN_SESSION_FILE__\""]
-    onExited: function() { appWindow._resetToAuth() }
+      "/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" delete \"$__OMAFIN_INSTANCE__\" || exit 0"]
   }
 
   Timer {
