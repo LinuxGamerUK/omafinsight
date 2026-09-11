@@ -97,6 +97,8 @@ omarchy-shell com.github.linuxgameruk.omafinsight openweb   # open the web app
 
 ## Privacy & security
 
+- **HTTPS enforced for credentials.** Your password and session cookie are only ever sent over HTTPS. A plain-HTTP instance URL is accepted solely as a local-only exception for loopback hosts (`localhost`, `127.x`, `::1`) so a self-hosted loopback instance works; any `http://` address that would reach a non-loopback host is rejected and the plugin falls back to the default HTTPS instance. This is not overridable.
+
 - **Your credentials go only to your FinSight instance.** The password is sent once over HTTPS to the `/api/auth/login` (or `/register`) endpoint you configured, and is never written to disk.
 - **The session cookie is stored locally** at `~/.local/state/omafinsight/<instance>/session.txt` (namespaced per instance URL) with `0600` permissions (directory `0700`). It is a bearer token for *your* instance only — different instances (e.g. a test server) get their own sessions and can never touch each other's.
 - The password travels over **stdin** into the login/register process — it never appears in a process argument list, so it can't leak via `/proc/<pid>/cmdline`. JSON request bodies likewise travel over stdin into a 0600 temp file, never via argv or shell interpolation.

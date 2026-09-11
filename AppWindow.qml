@@ -13,16 +13,35 @@ import Quickshell.Io
 ApplicationWindow {
   id: appWindow
 
+  // Credential-bearing transport policy (same as Service): HTTPS required.
+  // Plain HTTP only for loopback hosts (localhost / 127.0.0.0/8 / ::1) so a
+  // self-hosted loopback instance works; http:// to any non-loopback host
+  // falls back to the default HTTPS instance. Not overridable.
+  readonly property string defaultInstance: "https://finsight.cresta.digital"
+
+  function isLoopbackHost(host) {
+    var h = String(host || "").toLowerCase()
+    if (h === "localhost" || h === "::1" || h === "[::1]") return true
+    if (h.indexOf("localhost:") === 0) return true
+    if (h.indexOf("127.") === 0) return true
+    if (h.indexOf("[::1]:") === 0) return true
+    return false
+  }
+
   readonly property string baseUrl: {
     var u = String(Quickshell.env("OMAFIN_URL") || "").trim()
-    if (u === "") u = "https://finsight.cresta.digital"
+    if (u === "") u = defaultInstance
     if (u.indexOf("http") !== 0) u = "https://" + u
     while (u.charAt(u.length - 1) === "/") u = u.substring(0, u.length - 1)
     // structural validation: https/http only, then a host[:port][/path] with
     // characters safe for both URLs and shell embedding. Reject anything else.
     if (!/^https:\/\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]+(\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]*)?$/.test(u)
         && !/^http:\/\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]+(\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]*)?$/.test(u))
-      return "https://finsight.cresta.digital"
+      return defaultInstance
+    if (u.indexOf("http://") === 0) {
+      var hostPart = u.substring(7).split("/")[0]
+      if (!isLoopbackHost(hostPart)) return defaultInstance
+    }
     return u
   }
   readonly property string sessionFile: sessionSvc.sessionFileFor(baseUrl)

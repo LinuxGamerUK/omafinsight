@@ -103,17 +103,39 @@ Item {
   }
 
   readonly property string urlReject: "[^'\"\\\\\\s;$&|<>`(){}!*?\\[\\]^~]"
+  // Credential-bearing transport policy: HTTPS required. Plain HTTP is a
+  // hard-restricted local-only exception (loopback hosts only — localhost,
+  // 127.0.0.0/8, ::1) so a self-hosted loopback instance still works; any
+  // http:// URL that would reach a non-loopback host is rejected and the
+  // default HTTPS instance is used instead. This cannot be overridden.
+  readonly property string defaultInstance: "https://finsight.cresta.digital"
+
+  function isLoopbackHost(host) {
+    var h = String(host || "").toLowerCase()
+    if (h === "localhost" || h === "::1" || h === "[::1]") return true
+    if (h.indexOf("localhost:") === 0) return true
+    if (h.indexOf("127.") === 0) return true
+    if (h.indexOf("[::1]:") === 0) return true
+    return false
+  }
+
   function normaliseUrl(u) {
     var s = String(u || "").trim()
     while (s.length > 0 && (s.charAt(0) === "'" || s.charAt(0) === '"')) s = s.substring(1)
     while (s.length > 0 && (s.charAt(s.length - 1) === "'" || s.charAt(s.length - 1) === '"')) s = s.substring(0, s.length - 1)
-    if (s === "") s = "https://finsight.cresta.digital"
+    if (s === "") s = defaultInstance
     if (s.indexOf("http") !== 0) s = "https://" + s
     while (s.length > 0 && s.charAt(s.length - 1) === "/") s = s.substring(0, s.length - 1)
     // structural validation: scheme must be http(s) and every character must be
     // URL-safe AND shell-safe (no quotes, whitespace, $ ; & | < > ` ( ) { } etc).
     var ok = /^(https|http):\/\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]+(\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]*)?$/.test(s)
-    return ok ? s : "https://finsight.cresta.digital"
+    if (!ok) return defaultInstance
+    // transport policy: credentials never cross plain HTTP off the loopback.
+    if (s.indexOf("http://") === 0) {
+      var hostPart = s.substring(7).split("/")[0]
+      if (!isLoopbackHost(hostPart)) return defaultInstance
+    }
+    return s
   }
 
   // Environment for subprocesses: baseUrl is structurally validated and the
