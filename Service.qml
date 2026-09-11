@@ -131,7 +131,9 @@ Item {
   property var procEnv: ({
     "__OMAFIN_INSTANCE__": instanceName,
     "__OMAFIN_PLUGIN_DIR__": pluginDir,
-    "__OMAFIN_URL__": baseUrl
+    "__OMAFIN_URL__": baseUrl,
+    "__OMAFIN_URL_DASH__": composeSummaryUrl(),
+    "__OMAFIN_URL_ACC__": composeAccountsUrl()
   })
 
   // ── Data model (bounded) ────────────────────────────────────────────

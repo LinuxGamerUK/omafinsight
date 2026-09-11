@@ -320,7 +320,9 @@ ApplicationWindow {
   property var procEnv: ({
     "__OMAFIN_INSTANCE__": instanceName,
     "__OMAFIN_PLUGIN_DIR__": pluginDir,
-    "__OMAFIN_URL__": baseUrl
+    "__OMAFIN_URL__": baseUrl,
+    "__OMAFIN_FETCH_URL__": baseUrl + "/api/dashboard" + (scope === "all" ? "?account=all" : ""),
+    "__OMAFIN_CHART_URL__": baseUrl + "/api/chart?days=" + chartDays + "&back=30" + (scope === "all" ? "&account=all" : "")
   })
 
   Process {
@@ -588,7 +590,9 @@ ApplicationWindow {
     procEnv = ({
       "__OMAFIN_INSTANCE__": instanceName,
       "__OMAFIN_PLUGIN_DIR__": pluginDir,
-      "__OMAFIN_URL__": baseUrl
+      "__OMAFIN_URL__": baseUrl,
+      "__OMAFIN_FETCH_URL__": baseUrl + "/api/dashboard" + (scope === "all" ? "?account=all" : ""),
+      "__OMAFIN_CHART_URL__": baseUrl + "/api/chart?days=" + chartDays + "&back=30" + (scope === "all" ? "&account=all" : "")
     })
     dashProc.fetchCycle = myCycle
     chartProc.fetchCycle = myCycle
