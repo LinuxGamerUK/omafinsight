@@ -23,10 +23,25 @@ Item {
 
   // Static helpers for the standalone Oma-App window. The launcher passes
   // the configured base URL as an argument, so no settings file is read there.
-  function sessionPath() {
+  // Sessions are namespaced per instance URL (hash of the host) so two
+  // instances (e.g. a scratch test server and production) never share —
+  // and can never delete each other's — session cookies.
+  function sessionDirFor(baseUrl) {
     var xdg = Quickshell.env("XDG_STATE_HOME") || ""
     var home = Quickshell.env("HOME") || "/"
-    return (xdg !== "" ? xdg : home + "/.local/state") + "/omafinsight/session.txt"
+    var u = String(baseUrl || "").trim()
+    while (u.charAt(u.length - 1) === "/") u = u.substring(0, u.length - 1)
+    var key = u.replace(/^https?:\/\//, "").replace(/[^a-zA-Z0-9.-]/g, "_")
+    if (key.length > 60) key = key.substring(0, 60)
+    return (xdg !== "" ? xdg : home + "/.local/state") + "/omafinsight/" + key
+  }
+
+  function sessionFileFor(baseUrl) {
+    return sessionDirFor(baseUrl) + "/session.txt"
+  }
+
+  function sessionPath() {
+    return sessionFileFor("https://finsight.cresta.digital")
   }
 
   // Launch the Oma-App desktop window (user-scope, no privileges). Runs the
@@ -143,13 +158,11 @@ Item {
   // itself is never persisted — only the session token. The file is written
   // by curl's own cookie jar (curl -c), read back with curl -b.
   function sessionDir() {
-    var xdg = Quickshell.env("XDG_STATE_HOME") || ""
-    var home = Quickshell.env("HOME") || "/"
-    return (xdg !== "" ? xdg : home + "/.local/state") + "/omafinsight"
+    return sessionDirFor(baseUrl)
   }
 
   function sessionFile() {
-    return sessionDir() + "/session.txt"
+    return sessionFileFor(baseUrl)
   }
 
   // ── Cycle state ─────────────────────────────────────────────────────

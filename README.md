@@ -1,15 +1,16 @@
 # OmaFinSight
 
-FinSight balance forecast in the Omarchy bar — plus a **native Quickshell desktop app** with charts — your **expected balance today**, **end of month** and **end of year**, per-account balances, in/out history and a low-balance warning glow, pulled live from your self-hosted [FinSight](https://github.com/LinuxGamerUK/FinSight) instance (Next.js, self-hosted on your own server).
+FinSight balance forecast in the Omarchy bar — plus a **native Quickshell desktop app** with charts **and full transaction management** — your **expected balance today**, **end of month** and **end of year**, per-account balances, in/out history and a low-balance warning glow, pulled live from your self-hosted [FinSight](https://github.com/LinuxGamerUK/FinSight) instance (Next.js, self-hosted on your own server).
 
-**Read-only companion.** The bar and app show your numbers; all data entry happens in the FinSight web app (`O` in the panel, or the *Open web* button).
+**Register, sign in, onboard, and manage everything from the desktop app**: add/edit/delete ad-hoc transactions, add/edit/delete recurring items (repeats), and add/delete one-off and recurring transfers between accounts — all written straight to your FinSight instance through its API. New users can register and run first-run onboarding (opening balance, account name, currency) entirely inside the Oma-App. The bar stays a read-only forecast companion.
 
 ## What it shows
 
 - **Bar chip:** expected balance today (or month-end / year-end / nothing — configurable), turning accent-coloured under your warning threshold and urgent under your critical threshold
 - **Privacy eye:** an eye icon beside the balance toggles `£**.**` masking — hidden by default so streams and screen shares never leak your balance; one click (or `H`) shows the numbers
 - **Panel:** today / month-end / year-end / +7 days / +30 days forecast, typical monthly in vs out, per-account balances, last refresh time
-- **Oma-App (`A` / *Open Oma-App*):** a native desktop window — balance forecast chart, money-in vs money-out bars, summary cards, per-account balances and upcoming items, with account-scope and date-range selectors. Same session, same instance, zero browser.
+- **Oma-App (`A` / *Open Oma-App*):** a native desktop window — balance forecast chart, money-in vs money-out bars, summary cards, per-account balances, upcoming items, with account-scope and date-range selectors — **plus three management tabs**: Overview (charts + accounts + upcoming), Transactions (add/edit/delete ad-hoc items, create one-off transfers), and Recurring (add/edit/delete repeats, create recurring transfers)
+- **First run:** sign in with an existing account or **register a new one** (name, email, password, currency), then run onboarding (opening balance, account name, start date) — no browser needed
 - **Keyboard:** `R` refreshes, `H` toggles the privacy eye, `A` opens the Oma-App, `O` opens the web app, arrows scroll, `Tab` switches panels
 
 ## IPC commands
@@ -69,8 +70,8 @@ You need a running FinSight instance somewhere you can reach (self-hosted, e.g. 
 ## Privacy & security
 
 - **Your credentials go only to your FinSight instance.** The password is sent once over HTTPS to the `/api/auth/login` endpoint you configured, and is never written to disk.
-- **The session cookie is stored locally** at `~/.local/state/omafinsight/session.txt` with `0600` permissions (directory `0700`). It is a bearer token for *your* instance only.
-- The password travels over **stdin** into the login process — it never appears in a process argument list, so it can't leak via `/proc/<pid>/cmdline`.
+- **The session cookie is stored locally** at `~/.local/state/omafinsight/<instance>/session.txt` (namespaced per instance URL) with `0600` permissions (directory `0700`). It is a bearer token for *your* instance only — different instances (e.g. a test server) get their own sessions and can never touch each other's.
+- The password travels over **stdin** into the login/register process — it never appears in a process argument list, so it can't leak via `/proc/<pid>/cmdline`. JSON request bodies likewise travel over stdin into a 0600 temp file, never via argv or shell interpolation.
 - No telemetry, no third-party calls, no analytics. The plugin talks to exactly one host: the base URL you configure.
 - **Amounts can be hidden at any time** (eye icon / `H`) — useful when streaming or screen sharing. Hidden state is per-session, not persisted.
 - The Oma-App window is the same trust domain: it reuses the stored session, runs as your user, and only talks to your instance.

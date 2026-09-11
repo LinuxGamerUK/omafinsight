@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "com.github.linuxgameruk.omafinsight",
   "name": "OmaFinSight",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "LinuxGamerUK",
   "license": "MIT",
   "description": "OmaFinSight — your FinSight balance forecast as a native Omarchy bar widget + desktop app: expected balance today, month-end and year-end across your accounts, per-account list, low-balance warnings, privacy-eye quick hide, and a full native charts app window. Reads from your self-hosted FinSight instance.",
