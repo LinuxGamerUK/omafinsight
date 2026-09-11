@@ -187,33 +187,38 @@ Item {
   property bool _authCheckDone: false
   property int _outstanding: 0
 
+  property int _fetchCycle: 0
+
   function refresh() {
-    if (busy) return
     if (!_authCheckDone) {
+      if (authCheck.running) return   // bootstrap already in flight
       busy = true
       authCheck.running = true
       authWatchdog.restart()
       return
     }
     if (!authed) return
+    // Re-arm even if a previous cycle stalled: kill in-flight procs, bump the
+    // cycle token so stale exit handlers can't decrement the new round.
+    _fetchCycle = _fetchCycle + 1
+    dashboardProcess.running = false
+    accountsProcess.running = false
     busy = true
     lastError = ""
     _outstanding = 2
-    launch(dashboardProcess, dashboardWatchdog, composeSummaryUrl())
-    launch(accountsProcess, accountsWatchdog, composeAccountsUrl())
-  }
-
-  function launch(process, watchdog, url) {
-    // URL travels via environment (validated QML value); command stays static.
+    var urls = { dash: composeSummaryUrl(), acc: composeAccountsUrl() }
     var pe = root.procEnv
-    pe["__OMAFIN_FETCH_URL__"] = url
+    pe["__OMAFIN_URL_DASH__"] = urls.dash
+    pe["__OMAFIN_URL_ACC__"] = urls.acc
     root.procEnv = pe
-    if (process.running) return
-    process.running = true
-    watchdog.restart()
+    dashboardProcess.running = true
+    accountsProcess.running = true
+    dashboardWatchdog.restart()
+    accountsWatchdog.restart()
   }
 
   function _finish(ok) {
+    if (_outstanding <= 0) return   // stale exit from an aborted cycle
     _outstanding = _outstanding - 1
     if (_outstanding <= 0) {
       anyData = expectedToday === expectedToday
@@ -479,7 +484,7 @@ Item {
       "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null) || exit 0; " +
       "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 0; " +
       "/usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
-      "--connect-timeout 5 --max-time 8 \"$__OMAFIN_FETCH_URL__\" 2>&1 | /usr/bin/head -c " + root.capSummary]
+      "--connect-timeout 5 --max-time 8 \"$__OMAFIN_URL_DASH__\" 2>&1 | /usr/bin/head -c " + root.capSummary]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (dashboardProcess.buffer.length + s.length <= root.capSummary) dashboardProcess.buffer += s + "\n"
@@ -516,7 +521,7 @@ Item {
       "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null) || exit 0; " +
       "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 0; " +
       "/usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
-      "--connect-timeout 5 --max-time 8 \"$__OMAFIN_FETCH_URL__\" 2>&1 | /usr/bin/head -c " + root.capSummary]
+      "--connect-timeout 5 --max-time 8 \"$__OMAFIN_URL_ACC__\" 2>&1 | /usr/bin/head -c " + root.capSummary]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (accountsProcess.buffer.length + s.length <= root.capSummary) accountsProcess.buffer += s + "\n"
