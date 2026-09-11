@@ -8,8 +8,8 @@ import qs.Ui
 
 Panel {
   id: root
-  moduleName: "com.github.linuxgameruk.finsightbar"
-  ipcTarget: "com.github.linuxgameruk.finsightbar"
+  moduleName: "com.github.linuxgameruk.omafinsight"
+  ipcTarget: "com.github.linuxgameruk.omafinsight"
   manageIpc: false
 
   property var anchorItem: null
@@ -59,6 +59,8 @@ Panel {
       Qt.openUrlExternally(deck.baseUrl)
       return "ok"
     }
+    function openapp(): string { deck.openApp(); return "ok" }
+    function eyetoggle(): string { deck.toggleHidden(); return deck.hideAmounts ? "hidden" : "visible" }
   }
 
   function balanceColor(v) {
@@ -93,6 +95,8 @@ Panel {
       onTextKey: function(t) {
         if (t === "r" || t === "R") deck.refresh()
         else if (t === "o" || t === "O") Qt.openUrlExternally(deck.baseUrl)
+        else if (t === "a" || t === "A") { root.close(); deck.openApp() }
+        else if (t === "h" || t === "H") deck.toggleHidden()
       }
     }
 
@@ -131,14 +135,14 @@ Panel {
           Column {
             anchors.left: heroIcon.right
             anchors.leftMargin: Style.space(14)
-            anchors.right: openButton.left
+            anchors.right: headerButtons.left
             anchors.rightMargin: Style.space(12)
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
 
             Text {
               width: parent.width
-              text: "FinSightBar"
+              text: "OmaFinSight"
               color: root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.title
@@ -167,28 +171,59 @@ Panel {
             }
           }
 
-          CursorSurface {
-            id: openButton
+          Row {
+            id: headerButtons
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            foreground: root.foreground
-            implicitWidth: Math.max(openLabel.implicitWidth, Style.space(56))
-            implicitHeight: Math.max(openLabel.implicitHeight, Style.space(28))
+            spacing: Style.space(10)
 
-            Text {
-              id: openLabel
-              anchors.centerIn: parent
-              text: "Open web"
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              textFormat: Text.PlainText
+            CursorSurface {
+              id: appButton
+              foreground: root.foreground
+              implicitWidth: Math.max(appLabel.implicitWidth, Style.space(56))
+              implicitHeight: Math.max(appLabel.implicitHeight, Style.space(28))
+
+              Text {
+                id: appLabel
+                anchors.centerIn: parent
+                text: "Open Oma-App"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                textFormat: Text.PlainText
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                  root.close()
+                  deck.openApp()
+                }
+              }
             }
 
-            MouseArea {
-              anchors.fill: parent
-              cursorShape: Qt.PointingHandCursor
-              onClicked: Qt.openUrlExternally(deck.baseUrl)
+            CursorSurface {
+              id: openButton
+              foreground: root.foreground
+              implicitWidth: Math.max(openLabel.implicitWidth, Style.space(56))
+              implicitHeight: Math.max(openLabel.implicitHeight, Style.space(28))
+
+              Text {
+                id: openLabel
+                anchors.centerIn: parent
+                text: "Open web"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                textFormat: Text.PlainText
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: Qt.openUrlExternally(deck.baseUrl)
+              }
             }
           }
         }
@@ -213,7 +248,7 @@ Panel {
 
           Text {
             width: parent.width
-            text: "Sign in to your FinSight instance once — the session is stored in ~/.local/state/finsightbar (0600) and your password is never saved."
+            text: "Sign in to your FinSight instance once — the session is stored in ~/.local/state/omafinsight (0600) and your password is never saved."
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -259,6 +294,45 @@ Panel {
           }
         }
 
+        // ── Privacy eye (signed in) ─────────────────────────────────
+        CursorSurface {
+          visible: deck.authed && deck.anyData
+          width: parent.width
+          implicitHeight: Math.max(privacyLabel.implicitHeight, Style.space(30))
+          foreground: root.foreground
+
+          Row {
+            anchors.left: parent.left
+            anchors.leftMargin: Style.space(10)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(8)
+
+            Text {
+              id: privacyIcon
+              text: deck.hideAmounts ? "\uf070" : "\uf06e"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              textFormat: Text.PlainText
+            }
+
+            Text {
+              id: privacyLabel
+              text: deck.hideAmounts ? "Amounts hidden — click to show" : "Amounts visible — click to hide"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              textFormat: Text.PlainText
+            }
+          }
+
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: deck.toggleHidden()
+          }
+        }
+
         // ── Forecast cards (signed in) ──────────────────────────────
         Column {
           visible: deck.authed && deck.anyData
@@ -283,7 +357,7 @@ Panel {
 
             Text {
               width: parent.width
-              text: deck.fmtMoney(deck.expectedToday)
+              text: deck.hideAmounts ? deck.currencySymbol + "**.**" : deck.fmtMoney(deck.expectedToday)
               color: root.balanceColor(deck.expectedToday)
               font.family: root.fontFamily
               font.pixelSize: Style.font.display
@@ -316,7 +390,7 @@ Panel {
               }
 
               Text {
-                text: deck.fmtMoney(modelData.value)
+                text: deck.hideAmounts ? deck.currencySymbol + "**.**" : deck.fmtMoney(modelData.value)
                 color: root.balanceColor(modelData.value)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -344,7 +418,7 @@ Panel {
             }
 
             Text {
-              text: "+" + deck.fmtMoney(deck.monthlyIncome) + " / -" + deck.fmtMoney(deck.monthlyExpenses)
+              text: deck.hideAmounts ? "+" + deck.currencySymbol + "**.** / -" + deck.currencySymbol + "**.**" : "+" + deck.fmtMoney(deck.monthlyIncome) + " / -" + deck.fmtMoney(deck.monthlyExpenses)
               color: root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -391,7 +465,7 @@ Panel {
               }
 
               Text {
-                text: modelData.balanceNow === modelData.balanceNow ? deck.fmtMoney(modelData.balanceNow) : "\u2014"
+                text: deck.hideAmounts ? deck.currencySymbol + "**.**" : (modelData.balanceNow === modelData.balanceNow ? deck.fmtMoney(modelData.balanceNow) : "\u2014")
                 color: root.balanceColor(modelData.balanceNow)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -410,7 +484,7 @@ Panel {
           text: {
             if (deck.busy) return "Refreshing\u2026"
             var t = deck.lastRefreshText === "" ? "" : "Updated " + deck.lastRefreshText + " \u00b7 "
-            return t + "refresh every " + deck.refreshIntervalSec + "s \u00b7 R refreshes \u00b7 O opens the web app"
+            return t + "refresh every " + deck.refreshIntervalSec + "s \u00b7 R refresh \u00b7 H hide \u00b7 A Oma-App \u00b7 O web"
           }
           color: root.dim
           font.family: root.fontFamily

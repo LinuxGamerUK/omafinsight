@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "com.github.linuxgameruk.finsightbar",
-  "name": "FinSightBar",
+  "id": "com.github.linuxgameruk.omafinsight",
+  "name": "OmaFinSight",
   "version": "1.0.0",
   "author": "LinuxGamerUK",
   "license": "MIT",
-  "description": "FinSight balance forecast in the Omarchy bar — expected balance today, end of month and end of year across your accounts, with a low-balance warning glow. Reads from your self-hosted FinSight instance; you log in once and the session is stored 0600.",
+  "description": "OmaFinSight — your FinSight balance forecast as a native Omarchy bar widget + desktop app: expected balance today, month-end and year-end across your accounts, per-account list, low-balance warnings, privacy-eye quick hide, and a full native charts app window. Reads from your self-hosted FinSight instance.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,8 +13,8 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "FinSightBar",
-    "description": "Balance forecast from your FinSight instance: today / month-end / year-end, account list, low-balance warnings.",
+    "displayName": "OmaFinSight",
+    "description": "Balance forecast from your FinSight instance: today / month-end / year-end, account list, low-balance warnings, privacy-eye hide.",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right",
@@ -24,7 +24,8 @@
       "warnBalance": 500,
       "criticalBalance": 200,
       "barShows": "today",
-      "scope": "primary"
+      "scope": "primary",
+      "hideByDefault": true
     },
     "schema": [
       {
@@ -81,8 +82,14 @@
           "all"
         ],
         "defaultValue": "primary"
+      },
+      {
+        "key": "hideByDefault",
+        "type": "boolean",
+        "label": "Start with amounts hidden (privacy eye)",
+        "defaultValue": true
       }
     ]
   },
-  "repository": "https://github.com/LinuxGamerUK/finsightbar"
+  "repository": "https://github.com/LinuxGamerUK/omafinsight"
 }

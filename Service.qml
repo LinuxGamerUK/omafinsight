@@ -1,7 +1,6 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import qs.Commons
 
 Item {
   id: root
@@ -15,6 +14,38 @@ Item {
   readonly property real criticalBalance: numSetting("criticalBalance", 200, 0, 1000000)
   readonly property string barShows: strSetting("barShows", "today")
   readonly property string scope: strSetting("scope", "primary")
+  readonly property bool hideByDefault: boolSetting("hideByDefault", true)
+
+  // Privacy eye: amounts hidden by default (streaming/screen-share safe).
+  // Toggled from the bar (eye icon) or panel; remembered per session.
+  property bool hidden: hideByDefault
+  function toggleHidden() { hidden = !hidden }
+
+  // Static helpers for the standalone Oma-App window. The launcher passes
+  // the configured base URL as an argument, so no settings file is read there.
+  function sessionPath() {
+    var xdg = Quickshell.env("XDG_STATE_HOME") || ""
+    var home = Quickshell.env("HOME") || "/"
+    return (xdg !== "" ? xdg : home + "/.local/state") + "/omafinsight/session.txt"
+  }
+
+  // Launch the Oma-App desktop window (user-scope, no privileges). Runs the
+  // user's quickshell binary pointed at AppWindow.qml with the base URL.
+  function openApp() {
+    openAppProcess.url = baseUrl
+    openAppProcess.running = true
+  }
+
+  Process {
+    id: openAppProcess
+    running: false
+    property string url: ""
+    command: ["bash", "-c",
+      "OMAFIN_URL='" + normaliseUrl(openAppProcess.url) + "' nohup qs -n -p '" +
+      Quickshell.env('HOME') + "/.config/omarchy/plugins/com.github.linuxgameruk.omafinsight/AppWindow.qml' " +
+      ">/dev/null 2>&1 & disown"]
+  }
+  readonly property bool hideAmounts: hidden
 
   function setting(name, fallback) {
     var value = settings ? settings[name] : undefined
@@ -37,6 +68,11 @@ Item {
     return n
   }
 
+  function boolSetting(name, fallback) {
+    var v = setting(name, fallback)
+    return v === true || v === "true"
+  }
+
   function strSettingRaw(name, fallback) {
     var v = String(setting(name, fallback))
     return v.trim()
@@ -49,6 +85,8 @@ Item {
 
   function normaliseUrl(u) {
     var s = String(u || "").trim()
+    while (s.length > 0 && (s.charAt(0) === "'" || s.charAt(0) === '"')) s = s.substring(1)
+    while (s.length > 0 && (s.charAt(s.length - 1) === "'" || s.charAt(s.length - 1) === '"')) s = s.substring(0, s.length - 1)
     if (s === "") return "https://finsight.cresta.digital"
     if (s.indexOf("http") !== 0) s = "https://" + s
     while (s.length > 0 && s.charAt(s.length - 1) === "/") s = s.substring(0, s.length - 1)
@@ -107,7 +145,7 @@ Item {
   function sessionDir() {
     var xdg = Quickshell.env("XDG_STATE_HOME") || ""
     var home = Quickshell.env("HOME") || "/"
-    return (xdg !== "" ? xdg : home + "/.local/state") + "/finsightbar"
+    return (xdg !== "" ? xdg : home + "/.local/state") + "/omafinsight"
   }
 
   function sessionFile() {
@@ -283,7 +321,7 @@ Item {
       "_e=$(printf '%s' \"$_creds\" | cut -d: -f1); " +
       "_p=$(printf '%s' \"$_creds\" | cut -d: -f2-); " +
       "mkdir -p '" + root.sessionDir() + "' && chmod 700 '" + root.sessionDir() + "'; " +
-      "_b=$(mktemp \"${XDG_RUNTIME_DIR:-/tmp}/finsightbar-body.XXXXXX\") || exit 1; " +
+      "_b=$(mktemp \"${XDG_RUNTIME_DIR:-/tmp}/omafinsight-body.XXXXXX\") || exit 1; " +
       "trap 'rm -f \"$_b\"' EXIT; " +
       "code=$(curl -sS --connect-timeout 5 --max-time 8 -c '" + root.sessionFile() + "' " +
       "-o \"$_b\" -w '%{http_code}' " +
