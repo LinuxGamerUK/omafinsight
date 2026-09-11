@@ -541,8 +541,15 @@ ApplicationWindow {
     return s.length <= n ? s : s.substring(0, n) + "…"
   }
 
+  property int _cycle: 0
+
   function refresh() {
-    if (busy) return
+    // re-arm even if a previous cycle stalled: kill in-flight procs and bump
+    // the cycle token so stale exit handlers can't decrement the new round.
+    _cycle = _cycle + 1
+    dashProc.running = false
+    chartProc.running = false
+    listsProc.running = false
     busy = true
     lastError = ""
     _outstanding = 3
@@ -557,6 +564,7 @@ ApplicationWindow {
   }
 
   function _finish(ok, errMsg) {
+    if (_outstanding <= 0) return   // stale exit from an aborted cycle
     _outstanding = _outstanding - 1
     if (_outstanding <= 0) {
       _outstanding = 0
@@ -2212,13 +2220,12 @@ ApplicationWindow {
                         Repeater {
                           model: appWindow.recentAdhocs()
 
-                          Row {
+                          Item {
                             id: recentRow
                             required property var modelData
                             required property int index
                             width: parent.width
                             height: 28
-                            spacing: 8
 
                             Rectangle {
                               width: parent.width
@@ -2307,7 +2314,7 @@ ApplicationWindow {
                         Repeater {
                           model: appWindow.upcomingBills()
 
-                          Row {
+                          Item {
                             id: billRow
                             required property var modelData
                             required property int index
@@ -2887,7 +2894,7 @@ ApplicationWindow {
                     Repeater {
                       model: appWindow.accounts
 
-                      Row {
+                      Item {
                         required property var modelData
                         required property int index
                         width: parent.width
