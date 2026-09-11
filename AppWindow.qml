@@ -795,9 +795,8 @@ ApplicationWindow {
     property string buffer: ""
     command: ["/usr/bin/timeout", "-k", "2", "20", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
-      "/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" read \"$__OMAFIN_INSTANCE__\" | " +
-      "/usr/bin/curl -sS -b - " +
-      "emit() { echo \"__$1__\"; /usr/bin/curl -sS -b - --connect-timeout 5 --max-time 8 \"$__OMAFIN_URL__/api/$2\" 2>&1 | /usr/bin/head -c " + appWindow.capSection + "; echo; }; " +
+      "_jar=$(/usr/bin/python3 \"$__OMAFIN_PLUGIN_DIR__/cookiesafe.py\" read \"$__OMAFIN_INSTANCE__\") || exit 1; " +
+      "emit() { echo \"__$1__\"; /usr/bin/curl -sS -b <(printf '%s' \"$_jar\") --connect-timeout 5 --max-time 8 \"$__OMAFIN_URL__/api/$2\" 2>&1 | /usr/bin/head -c " + appWindow.capSection + "; echo; }; " +
       "emit ADHOCS adhoc; emit REPEATS repeats; emit TRANSFERS transfers; emit TREFS transfers/recurring; emit CATS categories"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
