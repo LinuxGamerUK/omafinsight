@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "id": "com.github.linuxgameruk.finsightbar",
+  "name": "FinSightBar",
+  "version": "1.0.0",
+  "author": "LinuxGamerUK",
+  "license": "MIT",
+  "description": "FinSight balance forecast in the Omarchy bar — expected balance today, end of month and end of year across your accounts, with a low-balance warning glow. Reads from your self-hosted FinSight instance; you log in once and the session is stored 0600.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "FinSightBar",
+    "description": "Balance forecast from your FinSight instance: today / month-end / year-end, account list, low-balance warnings.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 900,
+      "baseUrl": "https://finsight.cresta.digital",
+      "warnBalance": 500,
+      "criticalBalance": 200,
+      "barShows": "today",
+      "scope": "primary"
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 120,
+        "max": 7200,
+        "step": 60,
+        "defaultValue": 900
+      },
+      {
+        "key": "baseUrl",
+        "type": "string",
+        "label": "FinSight base URL",
+        "defaultValue": "https://finsight.cresta.digital"
+      },
+      {
+        "key": "warnBalance",
+        "type": "integer",
+        "label": "Low-balance warning threshold",
+        "min": 0,
+        "max": 100000,
+        "step": 50,
+        "defaultValue": 500
+      },
+      {
+        "key": "criticalBalance",
+        "type": "integer",
+        "label": "Critical-balance threshold",
+        "min": 0,
+        "max": 100000,
+        "step": 50,
+        "defaultValue": 200
+      },
+      {
+        "key": "barShows",
+        "type": "enum",
+        "label": "Bar shows",
+        "options": [
+          "today",
+          "month-end",
+          "year-end",
+          "none"
+        ],
+        "defaultValue": "today"
+      },
+      {
+        "key": "scope",
+        "type": "enum",
+        "label": "Account scope",
+        "options": [
+          "primary",
+          "all"
+        ],
+        "defaultValue": "primary"
+      }
+    ]
+  },
+  "repository": "https://github.com/LinuxGamerUK/finsightbar"
+}
