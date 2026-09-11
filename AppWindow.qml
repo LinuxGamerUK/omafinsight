@@ -99,7 +99,8 @@ ApplicationWindow {
   readonly property color inputBg: "#11131c"
 
   title: "OmaFinSight"
-  color: "#11131c"
+  icon: Qt.resolvedUrl("assets/logo.png")
+  color: cBg
   width: 1160
   height: 760
   visible: true
@@ -1468,12 +1469,12 @@ ApplicationWindow {
             spacing: 10
             anchors.horizontalCenter: parent.horizontalCenter
 
-            Text {
-              text: "\ue933"
-              color: appWindow.cPrimary
-              font.family: appWindow.fontFamily
-              font.pixelSize: 28
-              textFormat: Text.PlainText
+            Image {
+              source: Qt.resolvedUrl("assets/logo.png")
+              sourceSize: Qt.size(28, 28)
+              width: 28; height: 28
+              fillMode: Image.PreserveAspectFit
+              mipmap: true
               anchors.verticalCenter: parent.verticalCenter
             }
             Text {
@@ -1654,12 +1655,12 @@ ApplicationWindow {
             spacing: 10
             anchors.horizontalCenter: parent.horizontalCenter
 
-            Text {
-              text: "\ue933"
-              color: appWindow.cPrimary
-              font.family: appWindow.fontFamily
-              font.pixelSize: 28
-              textFormat: Text.PlainText
+            Image {
+              source: Qt.resolvedUrl("assets/logo.png")
+              sourceSize: Qt.size(28, 28)
+              width: 28; height: 28
+              fillMode: Image.PreserveAspectFit
+              mipmap: true
               anchors.verticalCenter: parent.verticalCenter
             }
             Text {
@@ -1834,12 +1835,12 @@ ApplicationWindow {
               leftPadding: 6
               topPadding: 4
 
-              Text {
-                text: "\ue933"
-                color: appWindow.cPrimary
-                font.family: appWindow.fontFamily
-                font.pixelSize: 20
-                textFormat: Text.PlainText
+              Image {
+                source: Qt.resolvedUrl("assets/logo.png")
+                sourceSize: Qt.size(20, 20)
+                width: 20; height: 20
+                fillMode: Image.PreserveAspectFit
+                mipmap: true
               }
               Text {
                 text: "OmaFinSight"
