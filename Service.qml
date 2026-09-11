@@ -57,7 +57,7 @@ Item {
     running: false
     environment: root.openAppEnv
     command: ["/usr/bin/bash", "-c",
-      "nohup /usr/bin/qs -n -p \"$HOME/.config/omarchy/plugins/com.github.linuxgameruk.omafinsight/AppWindow.qml\" " +
+      "/usr/bin/nohup /usr/bin/qs -n -p \"$HOME/.config/omarchy/plugins/com.github.linuxgameruk.omafinsight/AppWindow.qml\" " +
       ">/dev/null 2>&1 & disown"]
   }
   readonly property var openAppEnv: ({
@@ -122,7 +122,8 @@ Item {
   property var procEnv: ({
     "__OMAFIN_URL__": baseUrl,
     "__OMAFIN_SESSION_FILE__": sessionFile(),
-    "__OMAFIN_SESSION_DIR__": sessionDir()
+    "__OMAFIN_SESSION_DIR__": sessionDir(),
+    "__OMAFIN_WORK_DIR__": sessionDir()
   })
 
   // ── Data model (bounded) ────────────────────────────────────────────
@@ -273,9 +274,11 @@ Item {
     property string buffer: ""
     environment: root.procEnv
     command: ["/usr/bin/timeout", "-k", "2", "" + root.netTimeoutSec, "/usr/bin/bash", "-c",
-      "set -o pipefail; test -f \"$__OMAFIN_SESSION_FILE__\" || exit 9; " +
+      "set -o pipefail; " +
+      "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null) || exit 9; " +
+      "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 9; " +
       "/usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" --connect-timeout 5 --max-time 8 " +
-      "-o /dev/null -w '%{http_code}' \"$__OMAFIN_URL__/api/profile\" 2>&1 | head -c 8"]
+      "-o /dev/null -w '%{http_code}' \"$__OMAFIN_URL__/api/profile\" 2>&1 | /usr/bin/head -c 8"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (authCheck.buffer.length + s.length <= 16) authCheck.buffer += s
@@ -326,7 +329,7 @@ Item {
     id: clearProcess
     running: false
     environment: root.procEnv
-    command: ["/usr/bin/bash", "-c", "rm -f \"$__OMAFIN_SESSION_FILE__\""]
+    command: ["/usr/bin/bash", "-c", "/usr/bin/rm -f \"$__OMAFIN_SESSION_FILE__\""]
   }
 
   // ── Login (panel form) ──────────────────────────────────────────────
@@ -359,15 +362,22 @@ Item {
     // arrives over stdin between sentinels — no user data in shell source.
     command: ["/usr/bin/timeout", "-k", "2", "" + root.netTimeoutSec, "/usr/bin/bash", "-c",
       "set -o pipefail; " +
-      "_b=$(mktemp \"${XDG_RUNTIME_DIR:-/tmp}/omafinsight-body.XXXXXX\") || exit 1; " +
-      "trap 'rm -f \"$_b\"' EXIT; " +
+      "/usr/bin/mkdir -p \"$__OMAFIN_SESSION_DIR__\" && /usr/bin/chmod 700 \"$__OMAFIN_SESSION_DIR__\" || exit 1; " +
+      "_rd=$(/usr/bin/realpath \"$__OMAFIN_SESSION_DIR__\") || exit 1; " +
+      "_di=$(/usr/bin/stat -c '%F:%u:%a' \"$_rd\") || exit 1; " +
+      "[ \"$_di\" = \"directory:$EUID:700\" ] || exit 1; " +
+      "_t=$(/usr/bin/mktemp -d \"$_rd/auth.XXXXXX\") || exit 1; " +
+      "trap '/usr/bin/rm -rf \"$_t\"' EXIT; " +
+      "_b=\"$_t/body\"; _j=\"$_t/jar\"; " +
       "while IFS= read -r _l; do [ \"$_l\" = __OMAFIN_EOF__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_b\"; " +
-      "chmod 600 \"$_b\"; " +
-      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 8 -c \"$__OMAFIN_SESSION_FILE__\" " +
-      "-o \"$_b.out\" -w '%{http_code}' " +
+      "/usr/bin/chmod 600 \"$_b\"; " +
+      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 8 -c \"$_j\" " +
+      "-o \"$_t/out\" -w '%{http_code}' " +
       "-H 'Content-Type: application/json' " +
-      "--data @\"$_b\" \"$__OMAFIN_URL__/api/auth/login\" 2>&1 | head -c 8); " +
-      "cat \"$_b.out\" 2>/dev/null | head -c " + root.capSummary + "; " +
+      "--data @\"$_b\" \"$__OMAFIN_URL__/api/auth/login\" 2>&1 | /usr/bin/head -c 8); " +
+      "if [ \"$code\" = 200 ] && /usr/bin/chmod 600 \"$_j\" 2>/dev/null && /usr/bin/test \"$(/usr/bin/stat -c '%F:%u:%a:%h' \"$_j\" 2>/dev/null)\" = \"regular file:$EUID:600:1\"; then " +
+      "/usr/bin/mv -f \"$_j\" \"$__OMAFIN_SESSION_FILE__\"; fi; " +
+      "/usr/bin/cat \"$_t/out\" 2>/dev/null | /usr/bin/head -c " + root.capSummary + "; " +
       "printf '\\n__CODE__%s' \"$code\""]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
@@ -465,8 +475,11 @@ Item {
     property string buffer: ""
     environment: root.procEnv
     command: ["/usr/bin/timeout", "-k", "2", "" + root.netTimeoutSec, "/usr/bin/bash", "-c",
-      "set -o pipefail; /usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
-      "--connect-timeout 5 --max-time 8 \"$__OMAFIN_FETCH_URL__\" 2>&1 | head -c " + root.capSummary]
+      "set -o pipefail; " +
+      "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null) || exit 0; " +
+      "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 0; " +
+      "/usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
+      "--connect-timeout 5 --max-time 8 \"$__OMAFIN_FETCH_URL__\" 2>&1 | /usr/bin/head -c " + root.capSummary]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (dashboardProcess.buffer.length + s.length <= root.capSummary) dashboardProcess.buffer += s + "\n"
@@ -499,8 +512,11 @@ Item {
     property string buffer: ""
     environment: root.procEnv
     command: ["/usr/bin/timeout", "-k", "2", "" + root.netTimeoutSec, "/usr/bin/bash", "-c",
-      "set -o pipefail; /usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
-      "--connect-timeout 5 --max-time 8 \"$__OMAFIN_FETCH_URL__\" 2>&1 | head -c " + root.capSummary]
+      "set -o pipefail; " +
+      "_s=$(/usr/bin/stat -c '%F:%u:%a:%h' \"$__OMAFIN_SESSION_FILE__\" 2>/dev/null) || exit 0; " +
+      "[ \"$_s\" = \"regular file:$EUID:600:1\" ] || exit 0; " +
+      "/usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
+      "--connect-timeout 5 --max-time 8 \"$__OMAFIN_FETCH_URL__\" 2>&1 | /usr/bin/head -c " + root.capSummary]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (accountsProcess.buffer.length + s.length <= root.capSummary) accountsProcess.buffer += s + "\n"
