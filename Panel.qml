@@ -119,13 +119,13 @@ Panel {
         // ── Hero ────────────────────────────────────────────────────
         Item {
           width: parent.width
-          implicitHeight: heroIcon.implicitHeight
+          implicitHeight: Math.max(heroCol.implicitHeight, Style.space(40))
 
           Image {
             id: heroIcon
             source: Qt.resolvedUrl("assets/logo.png")
-            sourceSize: Qt.size(24, 24)
-            width: 24; height: 24
+            sourceSize: Qt.size(34, 34)
+            width: 34; height: 34
             fillMode: Image.PreserveAspectFit
             mipmap: true
             anchors.left: parent.left
@@ -133,12 +133,13 @@ Panel {
           }
 
           Column {
+            id: heroCol
             anchors.left: heroIcon.right
-            anchors.leftMargin: Style.space(14)
+            anchors.leftMargin: Style.space(12)
             anchors.right: headerButtons.left
             anchors.rightMargin: Style.space(12)
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(2)
+            spacing: Style.space(3)
 
             Text {
               width: parent.width
