@@ -121,13 +121,13 @@ Panel {
           width: parent.width
           implicitHeight: heroIcon.implicitHeight
 
-          Text {
+          Image {
             id: heroIcon
-            text: "\ue933"
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.display
-            textFormat: Text.PlainText
+            source: Qt.resolvedUrl("assets/logo.png")
+            sourceSize: Qt.size(24, 24)
+            width: 24; height: 24
+            fillMode: Image.PreserveAspectFit
+            mipmap: true
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
           }

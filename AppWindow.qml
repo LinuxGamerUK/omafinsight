@@ -99,7 +99,6 @@ ApplicationWindow {
   readonly property color inputBg: "#11131c"
 
   title: "OmaFinSight"
-  icon: Qt.resolvedUrl("assets/logo.png")
   color: cBg
   width: 1160
   height: 760
