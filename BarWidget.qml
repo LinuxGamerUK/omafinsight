@@ -100,7 +100,7 @@ BarWidget {
     WidgetButton {
       id: button
       bar: root.bar
-      text: root.barText !== "" ? ("\uf0114 " + root.barText) : "\uf0114"
+      text: root.barText !== "" ? ("\ued0b " + root.barText) : "\ued0b"
       fontSize: root.barText !== "" ? Style.font.bodySmall : Style.bar.iconFont
       horizontalMargin: root.barText !== "" ? 8.5 : 0
       tooltipText: {
