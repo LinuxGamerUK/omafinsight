@@ -1,27 +1,45 @@
 # OmaFinSight
 
-FinSight balance forecast in the Omarchy bar — plus a **native Quickshell desktop app** with charts **and full transaction management** — your **expected balance today**, **end of month** and **end of year**, per-account balances, in/out history and a low-balance warning glow, pulled live from your self-hosted [FinSight](https://github.com/LinuxGamerUK/FinSight) instance (Next.js, self-hosted on your own server).
+![OmaFinSight](assets/screenshot.png)
 
-**Register, sign in, onboard, and manage everything from the desktop app**: add/edit/delete ad-hoc transactions, add/edit/delete recurring items (repeats), and add/delete one-off and recurring transfers between accounts — all written straight to your FinSight instance through its API. New users can register and run first-run onboarding (opening balance, account name, currency) entirely inside the Oma-App. The bar stays a read-only forecast companion.
+Your [FinSight](https://github.com/LinuxGamerUK/FinSight) personal finance data, living in your Omarchy bar and on your desktop. **One free account, one set of numbers, everywhere** — the bar chip, the quick panel, a native desktop app, and the web UI all read and write the same data on the same instance, so a transaction you add on the desktop app is in your web dashboard the moment you look.
 
-## What it shows
+OmaFinSight is a companion to a **FinSight instance** — a free, self-hostable personal finance forecaster. Don't have one? Point OmaFinSight at the author's free public instance at **[https://finsight.cresta.digital](https://finsight.cresta.digital)** (register in-app and go), or run your own — it's a single Node.js app + SQLite.
 
-- **Bar chip:** expected balance today (or month-end / year-end / nothing — configurable), turning accent-coloured under your warning threshold and urgent under your critical threshold
-- **Privacy eye:** an eye icon beside the balance toggles `£**.**` masking — hidden by default so streams and screen shares never leak your balance; one click (or `H`) shows the numbers
-- **Panel:** today / month-end / year-end / +7 days / +30 days forecast, typical monthly in vs out, per-account balances, last refresh time
-- **Oma-App (`A` / *Open Oma-App*):** a native desktop window — balance forecast chart, money-in vs money-out bars, summary cards, per-account balances, upcoming items, with account-scope and date-range selectors — **plus three management tabs**: Overview (charts + accounts + upcoming), Transactions (add/edit/delete ad-hoc items, create one-off transfers), and Recurring (add/edit/delete repeats, create recurring transfers)
-- **First run:** sign in with an existing account or **register a new one** (name, email, password, currency), then run onboarding (opening balance, account name, start date) — no browser needed
-- **Keyboard:** `R` refreshes, `H` toggles the privacy eye, `A` opens the Oma-App, `O` opens the web app, arrows scroll, `Tab` switches panels
+## What you get
 
-## IPC commands
+### Bar chip
+- **Expected balance today** (or month-end / year-end / nothing — configurable), comma-formatted, always current
+- Turns **accent** under your warning threshold and **urgent red** under your critical threshold
+- **Privacy eye** — one click masks every amount as `£**.**` across bar, panel *and* app, for streaming and screen sharing. Hidden by default on fresh installs; toggle with the eye icon or `H`
 
-```sh
-omarchy-shell com.github.linuxgameruk.omafinsight toggle    # open/close panel
-omarchy-shell com.github.linuxgameruk.omafinsight refresh   # refresh now
-omarchy-shell com.github.linuxgameruk.omafinsight eyetoggle # hide/show amounts
-omarchy-shell com.github.linuxgameruk.omafinsight openapp   # launch the Oma-App window
-omarchy-shell com.github.linuxgameruk.omafinsight openweb   # open the web app
-```
+### Quick panel (click the bar chip)
+- Expected today, end of month, end of year, +7 days, +30 days
+- Typical monthly income vs expenses, per-account balances (credit card debt in red)
+- **Privacy eye toggle**, last refresh time, thresholds honoured
+- **Open web** and **Open Oma-App** buttons, keyboard shortcuts (`R` refresh, `H` hide, `A` app, `O` web)
+
+### Oma-App — the native desktop window
+A full Material You dashboard over your FinSight data, no browser needed:
+
+- **Dashboard** — KPI cards (expected today with balance sparkline, spending this month with savings rate, year-end forecast), **spending by category** bars, **6-month cashflow** chart (income vs expenses), recent transactions table, upcoming bills, full balance forecast chart
+- **Transactions** — add, **edit** and **delete** ad-hoc transactions (category, amount, direction, date); create one-off transfers between accounts
+- **Recurring** — add, **edit** and **delete** repeats (daily / weekly / monthly / annually, with weekday, day-of-month, last-working-day and MM-DD detail, never-expires or end date); create recurring transfers
+- **Accounts** — every account with live balances, and your typical month in / expenses / net
+- Account scope (primary / all accounts) and forecast range (30 / 90 days / 12 months) selectors
+
+### Register & onboarding — no browser required
+New to FinSight? Create your account right inside the Oma-App: name, email, password, currency — then first-run onboarding (opening balance, account name, start date). The bar, panel and app sign in with the same credentials and stay in sync through the instance.
+
+## Everything reads the same data
+
+| Surface | Reads | Writes |
+|---|---|---|
+| Bar chip + panel | forecast, accounts, thresholds | — (read-only by design) |
+| Oma-App | everything | transactions, repeats, transfers, register, onboarding |
+| Web UI (`O` / *Open web*) | everything | everything |
+
+All three talk to the same base URL over its REST API, so there's exactly one source of truth: your instance. Sign in on any surface and you're looking at the same ledger.
 
 ## Install
 
@@ -44,23 +62,33 @@ To remove:
 ```sh
 omarchy plugin disable com.github.linuxgameruk.omafinsight
 rm -rf ~/.config/omarchy/plugins/com.github.linuxgameruk.omafinsight
-rm -rf ~/.local/state/omafinsight   # removes the stored session
+rm -rf ~/.local/state/omafinsight   # removes all stored sessions
 ```
 
 ## First run
 
 1. Click the bar icon — the panel shows a sign-in form.
-2. Enter the email + password you use on your FinSight web instance.
+2. Enter the email + password of your FinSight account. (New? Use **Create an account** in the Oma-App, or register at the instance's web UI.)
 3. That's it. The session cookie is stored locally (see Privacy); your password is never saved.
 
-You need a running FinSight instance somewhere you can reach (self-hosted, e.g. on your own server via Tailscale/LAN, or a public URL). The instance URL is set in the widget settings (default `https://finsight.cresta.digital`, the author's public instance — point it at your own).
+You need a reachable FinSight instance. The default is the author's free public instance, `https://finsight.cresta.digital` — register for free and use it immediately, or point the Base URL setting at your own self-hosted instance (LAN, Tailscale, or a public URL).
+
+## IPC commands
+
+```sh
+omarchy-shell com.github.linuxgameruk.omafinsight toggle    # open/close panel
+omarchy-shell com.github.linuxgameruk.omafinsight refresh   # refresh now
+omarchy-shell com.github.linuxgameruk.omafinsight eyetoggle # hide/show amounts
+omarchy-shell com.github.linuxgameruk.omafinsight openapp   # launch the Oma-App window
+omarchy-shell com.github.linuxgameruk.omafinsight openweb   # open the web app
+```
 
 ## Settings
 
 | Setting | Default | Description |
 |---|---|---|
 | Refresh interval | 900s | How often to poll the API (min 120s) |
-| Base URL | finsight.cresta.digital | Your FinSight instance |
+| Base URL | finsight.cresta.digital | Your FinSight instance (yours or the free public one) |
 | Warning threshold | 500 | Balance under this → accent colour |
 | Critical threshold | 200 | Balance under this → urgent colour |
 | Bar shows | today | `today` / `month-end` / `year-end` / `none` |
@@ -69,23 +97,23 @@ You need a running FinSight instance somewhere you can reach (self-hosted, e.g. 
 
 ## Privacy & security
 
-- **Your credentials go only to your FinSight instance.** The password is sent once over HTTPS to the `/api/auth/login` endpoint you configured, and is never written to disk.
+- **Your credentials go only to your FinSight instance.** The password is sent once over HTTPS to the `/api/auth/login` (or `/register`) endpoint you configured, and is never written to disk.
 - **The session cookie is stored locally** at `~/.local/state/omafinsight/<instance>/session.txt` (namespaced per instance URL) with `0600` permissions (directory `0700`). It is a bearer token for *your* instance only — different instances (e.g. a test server) get their own sessions and can never touch each other's.
 - The password travels over **stdin** into the login/register process — it never appears in a process argument list, so it can't leak via `/proc/<pid>/cmdline`. JSON request bodies likewise travel over stdin into a 0600 temp file, never via argv or shell interpolation.
 - No telemetry, no third-party calls, no analytics. The plugin talks to exactly one host: the base URL you configure.
 - **Amounts can be hidden at any time** (eye icon / `H`) — useful when streaming or screen sharing. Hidden state is per-session, not persisted.
 - The Oma-App window is the same trust domain: it reuses the stored session, runs as your user, and only talks to your instance.
-- **Sign out** = delete the session: `rm -rf ~/.local/state/omafinsight`.
+- **Sign out** in the Oma-App sidebar (or delete the session dir) clears the stored session.
 
 ## Dependencies
 
 - Omarchy (with the Quickshell shell) — this is a bar plugin
 - `curl` (pre-installed on Omarchy/Arch)
-- A reachable FinSight instance (self-hosted — see the [FinSight repo](https://github.com/LinuxGamerUK/FinSight) to run your own; it's a single Node.js app + SQLite)
+- A reachable FinSight instance — the free public one at [finsight.cresta.digital](https://finsight.cresta.digital), or self-host your own ([FinSight repo](https://github.com/LinuxGamerUK/FinSight), single Node.js app + SQLite)
 
 ## Privileges
 
-None. The plugin runs entirely as your user, makes no privileged calls, installs no services, and never downloads or executes third-party code at runtime.
+None. The plugin runs entirely as your user, makes no privileged calls, installs no services, and never downloads or executes third-party code at runtime. All subprocess I/O is bounded (`timeout` + watchdogs, capped output, parse-only-on-success).
 
 ## License
 
