@@ -211,6 +211,8 @@ Item {
     pe["__OMAFIN_URL_DASH__"] = urls.dash
     pe["__OMAFIN_URL_ACC__"] = urls.acc
     root.procEnv = pe
+    dashboardProcess.fetchCycle = _fetchCycle
+    accountsProcess.fetchCycle = _fetchCycle
     dashboardProcess.running = true
     accountsProcess.running = true
     dashboardWatchdog.restart()
@@ -477,6 +479,7 @@ Item {
   Process {
     id: dashboardProcess
     running: false
+    property int fetchCycle: 0
     property string buffer: ""
     environment: root.procEnv
     command: ["/usr/bin/timeout", "-k", "2", "" + root.netTimeoutSec, "/usr/bin/bash", "-c",
@@ -492,8 +495,10 @@ Item {
     onExited: function(exitCode) {
       dashboardWatchdog.stop()
       dashboardProcess.running = false
+      var myCycle = dashboardProcess.fetchCycle
       var buf = truncate(dashboardProcess.buffer.trim(), capSummary)
       dashboardProcess.buffer = ""
+      if (myCycle !== _fetchCycle) return   // killed by a newer refresh — not ours
       if (exitCode === 0) root._parseDashboard(buf)
       else if (exitCode === 124 || exitCode === 137) root._failAll("Dashboard fetch timed out")
       else root._failAll("Dashboard fetch failed (exit " + exitCode + ")")
@@ -514,6 +519,7 @@ Item {
   Process {
     id: accountsProcess
     running: false
+    property int fetchCycle: 0
     property string buffer: ""
     environment: root.procEnv
     command: ["/usr/bin/timeout", "-k", "2", "" + root.netTimeoutSec, "/usr/bin/bash", "-c",
@@ -529,8 +535,10 @@ Item {
     onExited: function(exitCode) {
       accountsWatchdog.stop()
       accountsProcess.running = false
+      var myCycle = accountsProcess.fetchCycle
       var buf = truncate(accountsProcess.buffer.trim(), capSummary)
       accountsProcess.buffer = ""
+      if (myCycle !== _fetchCycle) return   // killed by a newer refresh — not ours
       if (exitCode === 0) root._parseAccounts(buf)
       else if (exitCode === 124 || exitCode === 137) root._finish(false)
       else root._finish(false)
