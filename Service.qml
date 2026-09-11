@@ -47,19 +47,23 @@ Item {
   // Launch the Oma-App desktop window (user-scope, no privileges). Runs the
   // user's quickshell binary pointed at AppWindow.qml with the base URL.
   function openApp() {
-    openAppProcess.url = baseUrl
+    _appUrl = normaliseUrl(baseUrl)
     openAppProcess.running = true
   }
 
+  property string _appUrl: ""
   Process {
     id: openAppProcess
     running: false
-    property string url: ""
-    command: ["bash", "-c",
-      "OMAFIN_URL='" + normaliseUrl(openAppProcess.url) + "' nohup qs -n -p '" +
-      Quickshell.env('HOME') + "/.config/omarchy/plugins/com.github.linuxgameruk.omafinsight/AppWindow.qml' " +
+    environment: root.openAppEnv
+    command: ["/usr/bin/bash", "-c",
+      "nohup /usr/bin/qs -n -p \"$HOME/.config/omarchy/plugins/com.github.linuxgameruk.omafinsight/AppWindow.qml\" " +
       ">/dev/null 2>&1 & disown"]
   }
+  readonly property var openAppEnv: ({
+    "OMAFIN_URL": _appUrl,
+    "HOME": Quickshell.env("HOME")
+  })
   readonly property bool hideAmounts: hidden
 
   function setting(name, fallback) {
@@ -98,15 +102,28 @@ Item {
     return v === "" ? fallback : v
   }
 
+  readonly property string urlReject: "[^'\"\\\\\\s;$&|<>`(){}!*?\\[\\]^~]"
   function normaliseUrl(u) {
     var s = String(u || "").trim()
     while (s.length > 0 && (s.charAt(0) === "'" || s.charAt(0) === '"')) s = s.substring(1)
     while (s.length > 0 && (s.charAt(s.length - 1) === "'" || s.charAt(s.length - 1) === '"')) s = s.substring(0, s.length - 1)
-    if (s === "") return "https://finsight.cresta.digital"
+    if (s === "") s = "https://finsight.cresta.digital"
     if (s.indexOf("http") !== 0) s = "https://" + s
     while (s.length > 0 && s.charAt(s.length - 1) === "/") s = s.substring(0, s.length - 1)
-    return s
+    // structural validation: scheme must be http(s) and every character must be
+    // URL-safe AND shell-safe (no quotes, whitespace, $ ; & | < > ` ( ) { } etc).
+    var ok = /^(https|http):\/\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]+(\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]*)?$/.test(s)
+    return ok ? s : "https://finsight.cresta.digital"
   }
+
+  // Environment for subprocesses: baseUrl is structurally validated and the
+  // session paths are derived from it inside XDG_STATE_HOME. Values never
+  // touch shell source — commands reference them as env vars.
+  property var procEnv: ({
+    "__OMAFIN_URL__": baseUrl,
+    "__OMAFIN_SESSION_FILE__": sessionFile(),
+    "__OMAFIN_SESSION_DIR__": sessionDir()
+  })
 
   // ── Data model (bounded) ────────────────────────────────────────────
   readonly property int maxAccounts: 8
@@ -186,8 +203,11 @@ Item {
   }
 
   function launch(process, watchdog, url) {
+    // URL travels via environment (validated QML value); command stays static.
+    var pe = root.procEnv
+    pe["__OMAFIN_FETCH_URL__"] = url
+    root.procEnv = pe
     if (process.running) return
-    process.url = url
     process.running = true
     watchdog.restart()
   }
@@ -251,10 +271,11 @@ Item {
     id: authCheck
     running: false
     property string buffer: ""
-    command: ["timeout", "-k", "2", "" + root.netTimeoutSec, "bash", "-c",
-      "set -o pipefail; test -f '" + root.sessionFile() + "' || exit 9; " +
-      "curl -sS -b '" + root.sessionFile() + "' --connect-timeout 5 --max-time 8 " +
-      "-o /dev/null -w '%{http_code}' '" + root.baseUrl + "/api/profile' 2>&1 | head -c 8"]
+    environment: root.procEnv
+    command: ["/usr/bin/timeout", "-k", "2", "" + root.netTimeoutSec, "/usr/bin/bash", "-c",
+      "set -o pipefail; test -f \"$__OMAFIN_SESSION_FILE__\" || exit 9; " +
+      "/usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" --connect-timeout 5 --max-time 8 " +
+      "-o /dev/null -w '%{http_code}' \"$__OMAFIN_URL__/api/profile\" 2>&1 | head -c 8"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (authCheck.buffer.length + s.length <= 16) authCheck.buffer += s
@@ -304,7 +325,8 @@ Item {
   Process {
     id: clearProcess
     running: false
-    command: ["bash", "-c", "rm -f '" + root.sessionFile() + "'"]
+    environment: root.procEnv
+    command: ["/usr/bin/bash", "-c", "rm -f \"$__OMAFIN_SESSION_FILE__\""]
   }
 
   // ── Login (panel form) ──────────────────────────────────────────────
@@ -312,14 +334,17 @@ Item {
   // curl writes the session cookie to the 0600 store; we then parse the
   // profile JSON to pick up the user's currency + email.
   property string _loginEmail: ""
-  property string _passwordToWrite: ""
+  property string _authBody: ""
 
   function login(email, password) {
     if (busy) return
     busy = true
     lastError = ""
     _loginEmail = truncate(email, 120)
-    _passwordToWrite = String(password || "")
+    _authBody = JSON.stringify({
+      email: String(email || "").trim(),
+      password: String(password || "")
+    })
     loginProcess.running = true
     loginWatchdog.restart()
   }
@@ -329,27 +354,28 @@ Item {
     running: false
     property string buffer: ""
     stdinEnabled: true
-    command: ["timeout", "-k", "2", "" + root.netTimeoutSec, "bash", "-c",
-      "set -o pipefail; IFS= read -r _creds; " +
-      "_e=$(printf '%s' \"$_creds\" | cut -d: -f1); " +
-      "_p=$(printf '%s' \"$_creds\" | cut -d: -f2-); " +
-      "mkdir -p '" + root.sessionDir() + "' && chmod 700 '" + root.sessionDir() + "'; " +
+    environment: root.procEnv
+    // The complete JSON body (built and escaped QML-side with JSON.stringify)
+    // arrives over stdin between sentinels — no user data in shell source.
+    command: ["/usr/bin/timeout", "-k", "2", "" + root.netTimeoutSec, "/usr/bin/bash", "-c",
+      "set -o pipefail; " +
       "_b=$(mktemp \"${XDG_RUNTIME_DIR:-/tmp}/omafinsight-body.XXXXXX\") || exit 1; " +
       "trap 'rm -f \"$_b\"' EXIT; " +
-      "code=$(curl -sS --connect-timeout 5 --max-time 8 -c '" + root.sessionFile() + "' " +
-      "-o \"$_b\" -w '%{http_code}' " +
+      "while IFS= read -r _l; do [ \"$_l\" = __OMAFIN_EOF__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_b\"; " +
+      "chmod 600 \"$_b\"; " +
+      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 8 -c \"$__OMAFIN_SESSION_FILE__\" " +
+      "-o \"$_b.out\" -w '%{http_code}' " +
       "-H 'Content-Type: application/json' " +
-      "--data \"{\\\"email\\\":\\\"$_e\\\",\\\"password\\\":\\\"$_p\\\"}\" " +
-      "'" + root.baseUrl + "/api/auth/login' 2>&1 | head -c 8); " +
-      "cat \"$_b\" | head -c " + root.capSummary + "; " +
+      "--data @\"$_b\" \"$__OMAFIN_URL__/api/auth/login\" 2>&1 | head -c 8); " +
+      "cat \"$_b.out\" 2>/dev/null | head -c " + root.capSummary + "; " +
       "printf '\\n__CODE__%s' \"$code\""]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (loginProcess.buffer.length + s.length <= root.capSummary) loginProcess.buffer += s + "\n"
     } }
     onStarted: {
-      write(_loginEmail + ':' + _passwordToWrite + '\n')
-      _passwordToWrite = ""
+      write(_authBody + '\n__OMAFIN_EOF__\n')
+      _authBody = ""
     }
     onExited: function(exitCode) {
       loginWatchdog.stop()
@@ -436,11 +462,11 @@ Item {
   Process {
     id: dashboardProcess
     running: false
-    property string url: ""
     property string buffer: ""
-    command: ["timeout", "-k", "2", "" + root.netTimeoutSec, "bash", "-c",
-      "set -o pipefail; curl -sS -b '" + root.sessionFile() + "' " +
-      "--connect-timeout 5 --max-time 8 '" + dashboardProcess.url + "' 2>&1 | head -c " + root.capSummary]
+    environment: root.procEnv
+    command: ["/usr/bin/timeout", "-k", "2", "" + root.netTimeoutSec, "/usr/bin/bash", "-c",
+      "set -o pipefail; /usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
+      "--connect-timeout 5 --max-time 8 \"$__OMAFIN_FETCH_URL__\" 2>&1 | head -c " + root.capSummary]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (dashboardProcess.buffer.length + s.length <= root.capSummary) dashboardProcess.buffer += s + "\n"
@@ -470,11 +496,11 @@ Item {
   Process {
     id: accountsProcess
     running: false
-    property string url: ""
     property string buffer: ""
-    command: ["timeout", "-k", "2", "" + root.netTimeoutSec, "bash", "-c",
-      "set -o pipefail; curl -sS -b '" + root.sessionFile() + "' " +
-      "--connect-timeout 5 --max-time 8 '" + accountsProcess.url + "' 2>&1 | head -c " + root.capSummary]
+    environment: root.procEnv
+    command: ["/usr/bin/timeout", "-k", "2", "" + root.netTimeoutSec, "/usr/bin/bash", "-c",
+      "set -o pipefail; /usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
+      "--connect-timeout 5 --max-time 8 \"$__OMAFIN_FETCH_URL__\" 2>&1 | head -c " + root.capSummary]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (accountsProcess.buffer.length + s.length <= root.capSummary) accountsProcess.buffer += s + "\n"

@@ -15,9 +15,14 @@ ApplicationWindow {
 
   readonly property string baseUrl: {
     var u = String(Quickshell.env("OMAFIN_URL") || "").trim()
-    if (u === "") return "https://finsight.cresta.digital"
+    if (u === "") u = "https://finsight.cresta.digital"
     if (u.indexOf("http") !== 0) u = "https://" + u
     while (u.charAt(u.length - 1) === "/") u = u.substring(0, u.length - 1)
+    // structural validation: https/http only, then a host[:port][/path] with
+    // characters safe for both URLs and shell embedding. Reject anything else.
+    if (!/^https:\/\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]+(\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]*)?$/.test(u)
+        && !/^http:\/\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]+(\/[^'"\\\s;$&|<>`(){}!*?\[\]^~]*)?$/.test(u))
+      return "https://finsight.cresta.digital"
     return u
   }
   readonly property string sessionFile: sessionSvc.sessionFileFor(baseUrl)
@@ -221,11 +226,12 @@ ApplicationWindow {
   Process {
     id: authProc
     running: false
+    environment: appWindow.procEnv
     property string buffer: ""
-    command: ["timeout", "-k", "2", "10", "bash", "-c",
-      "set -o pipefail; test -f '" + appWindow.sessionFile + "' || exit 9; " +
-      "curl -sS -b '" + appWindow.sessionFile + "' --connect-timeout 5 --max-time 8 " +
-      "'" + appWindow.baseUrl + "/api/profile' 2>&1 | head -c 4000"]
+    command: ["/usr/bin/timeout", "-k", "2", "10", "/usr/bin/bash", "-c",
+      "set -o pipefail; test -f \"$__OMAFIN_SESSION_FILE__\" || exit 9; " +
+      "/usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" --connect-timeout 5 --max-time 8 " +
+      "\"$__OMAFIN_URL__/api/profile\" 2>&1 | head -c 4000"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (authProc.buffer.length + s.length <= 4000) authProc.buffer += s + "\n"
@@ -288,33 +294,47 @@ ApplicationWindow {
     authBusy = true
     authError = ""
     regMode = false
-    _pwToWrite = p
-    loginProc.emailJson = JSON.stringify(e)
+    // the full body is escaped here by JSON.stringify and travels over stdin;
+    // nothing user-controlled ever enters the command array.
+    _authBody = JSON.stringify({ email: e, password: p })
     loginProc.running = true
     loginWatchdog.restart()
   }
 
+  property string _authBody: ""
+
+  // Environment for all subprocesses. Every value is QML-generated:
+  // baseUrl passes structural validation (no quotes/whitespace/shell metas),
+  // sessionFile/sessionDir are derived from it inside the state directory.
+  property var procEnv: ({
+    "__OMAFIN_URL__": baseUrl,
+    "__OMAFIN_SESSION_FILE__": sessionFile,
+    "__OMAFIN_SESSION_DIR__": sessionSvc.sessionDirFor(baseUrl)
+  })
+
   Process {
     id: loginProc
     running: false
-    property string emailJson: "\"\""
     property string buffer: ""
     stdinEnabled: true
-    command: ["timeout", "-k", "2", "12", "bash", "-c",
-      "set -o pipefail; IFS= read -r _pw; " +
+    // argv is fully static: no user data is interpolated into shell source.
+    // The complete JSON body (including the password, escaped by JSON.stringify)
+    // arrives over stdin between sentinel markers and is written by bash itself.
+    environment: appWindow.procEnv
+    command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
+      "set -o pipefail; " +
       "_f=$(mktemp \"${XDG_RUNTIME_DIR:-/tmp}/omafinsight-login.XXXXXX\") || exit 1; " +
-      "trap 'rm -f \"$_f\"' EXIT; " +
-      "printf '{\"email\":%s,\"password\":%s}' " + loginProc.emailJson.replace(/\\/g, "\\\\") + " " +
-      "\"$(printf '%s' \"$_pw\" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '\"\"')\" > \"$_f\"; " +
+      "trap 'rm -f \"$_f\" \"$_f.out\"' EXIT; " +
+      "while IFS= read -r _l; do [ \"$_l\" = __OMAFIN_EOF__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_f\"; " +
       "chmod 600 \"$_f\"; " +
-      "mkdir -p '" + sessionSvc.sessionDirFor(appWindow.baseUrl) + "' && chmod 700 '" + sessionSvc.sessionDirFor(appWindow.baseUrl) + "'; " +
-      "code=$(curl -sS --connect-timeout 5 --max-time 10 -c '" + appWindow.sessionFile + "' " +
+      "mkdir -p \"$__OMAFIN_SESSION_DIR__\" && chmod 700 \"$__OMAFIN_SESSION_DIR__\"; " +
+      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 10 -c \"$__OMAFIN_SESSION_FILE__\" " +
       "-o \"$_f.out\" -w '%{http_code}' -H 'Content-Type: application/json' " +
-      "--data @\"$_f\" '" + appWindow.baseUrl + "/api/auth/login' 2>&1 | head -c 8); " +
+      "--data @\"$_f\" \"$__OMAFIN_URL__/api/auth/login\" 2>&1 | head -c 8); " +
       "cat \"$_f.out\" 2>/dev/null | head -c 4000; printf '\\n__CODE__%s' \"$code\""]
     onStarted: {
-      write(_pwToWrite + '\n')
-      _pwToWrite = ""
+      write(_authBody + '\n__OMAFIN_EOF__\n')
+      _authBody = ""
     }
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
@@ -381,10 +401,7 @@ ApplicationWindow {
     authBusy = true
     authError = ""
     regMode = true
-    _pwToWrite = p
-    registerProc.nameJson = JSON.stringify(n)
-    registerProc.emailJson = JSON.stringify(e)
-    registerProc.currencyJson = JSON.stringify(String(currency || "GBP"))
+    _authBody = JSON.stringify({ name: n, email: e, password: p, currency: String(currency || "GBP") })
     registerProc.running = true
     registerWatchdog.restart()
   }
@@ -392,27 +409,22 @@ ApplicationWindow {
   Process {
     id: registerProc
     running: false
-    property string nameJson: "\"\""
-    property string emailJson: "\"\""
-    property string currencyJson: "\"GBP\""
     property string buffer: ""
     stdinEnabled: true
-    command: ["timeout", "-k", "2", "12", "bash", "-c",
-      "set -o pipefail; IFS= read -r _pw; " +
+    environment: appWindow.procEnv
+    command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
+      "set -o pipefail; " +
       "_f=$(mktemp \"${XDG_RUNTIME_DIR:-/tmp}/omafinsight-reg.XXXXXX\") || exit 1; " +
-      "trap 'rm -f \"$_f\"' EXIT; " +
-      "printf '{\"name\":%s,\"email\":%s,\"password\":%s,\"currency\":%s}' " +
-      registerProc.nameJson + " " + registerProc.emailJson + " " +
-      "\"$(printf '%s' \"$_pw\" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '\"\"')\" " +
-      registerProc.currencyJson + " > \"$_f\"; " +
+      "trap 'rm -f \"$_f\" \"$_f.out\"' EXIT; " +
+      "while IFS= read -r _l; do [ \"$_l\" = __OMAFIN_EOF__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_f\"; " +
       "chmod 600 \"$_f\"; " +
-      "code=$(curl -sS --connect-timeout 5 --max-time 10 -c '" + appWindow.sessionFile + "' " +
+      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 10 -c \"$__OMAFIN_SESSION_FILE__\" " +
       "-o \"$_f.out\" -w '%{http_code}' -H 'Content-Type: application/json' " +
-      "--data @\"$_f\" '" + appWindow.baseUrl + "/api/auth/register' 2>&1 | head -c 8); " +
+      "--data @\"$_f\" \"$__OMAFIN_URL__/api/auth/register\" 2>&1 | head -c 8); " +
       "cat \"$_f.out\" 2>/dev/null | head -c 4000; printf '\\n__CODE__%s' \"$code\""]
     onStarted: {
-      write(_pwToWrite + '\n')
-      _pwToWrite = ""
+      write(_authBody + '\n__OMAFIN_EOF__\n')
+      _authBody = ""
     }
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
@@ -483,17 +495,18 @@ ApplicationWindow {
   Process {
     id: onboardProc
     running: false
+    environment: appWindow.procEnv
     property string body: ""
     property string buffer: ""
     stdinEnabled: true
-    command: ["timeout", "-k", "2", "12", "bash", "-c",
+    command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
       "_f=$(mktemp \"${XDG_RUNTIME_DIR:-/tmp}/omafinsight-onb.XXXXXX\") || exit 1; " +
       "trap 'rm -f \"$_f\"' EXIT; " +
       "while IFS= read -r _l; do [ \"$_l\" = __EOFMUT__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_f\"; chmod 600 \"$_f\"; " +
-      "code=$(curl -sS --connect-timeout 5 --max-time 10 -b '" + appWindow.sessionFile + "' " +
+      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 10 -b \"$__OMAFIN_SESSION_FILE__\" " +
       "-o \"$_f.out\" -w '%{http_code}' -H 'Content-Type: application/json' " +
-      "--data @\"$_f\" '" + appWindow.baseUrl + "/api/onboarding' 2>&1 | head -c 8); " +
+      "--data @\"$_f\" \"$__OMAFIN_URL__/api/onboarding\" 2>&1 | head -c 8); " +
       "cat \"$_f.out\" 2>/dev/null | head -c 2000; printf '\\n__CODE__%s' \"$code\""]
     onStarted: { write(body + "\n__EOFMUT__\n"); body = "" }
     stdout: SplitParser { onRead: function(line) {
@@ -553,8 +566,13 @@ ApplicationWindow {
     busy = true
     lastError = ""
     _outstanding = 3
-    dashProc.url = baseUrl + "/api/dashboard" + (scope === "all" ? "?account=all" : "")
-    chartProc.url = baseUrl + "/api/chart?days=" + chartDays + "&back=30" + (scope === "all" ? "&account=all" : "")
+    procEnv = ({
+      "__OMAFIN_URL__": baseUrl,
+      "__OMAFIN_SESSION_FILE__": sessionFile,
+      "__OMAFIN_SESSION_DIR__": sessionSvc.sessionDirFor(baseUrl),
+      "__OMAFIN_FETCH_URL__": baseUrl + "/api/dashboard" + (scope === "all" ? "?account=all" : ""),
+      "__OMAFIN_CHART_URL__": baseUrl + "/api/chart?days=" + chartDays + "&back=30" + (scope === "all" ? "&account=all" : "")
+    })
     dashProc.running = true
     chartProc.running = true
     listsProc.running = true
@@ -668,11 +686,12 @@ ApplicationWindow {
   Process {
     id: dashProc
     running: false
+    environment: appWindow.procEnv
     property string url: ""
     property string buffer: ""
-    command: ["timeout", "-k", "2", "12", "bash", "-c",
-      "set -o pipefail; curl -sS -b '" + appWindow.sessionFile + "' " +
-      "--connect-timeout 5 --max-time 10 '" + dashProc.url + "' 2>&1 | head -c 400000"]
+    command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
+      "set -o pipefail; /usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
+      "--connect-timeout 5 --max-time 10 \"$__OMAFIN_FETCH_URL__\" 2>&1 | head -c 400000"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (dashProc.buffer.length + s.length <= 400000) dashProc.buffer += s + "\n"
@@ -703,11 +722,12 @@ ApplicationWindow {
   Process {
     id: chartProc
     running: false
+    environment: appWindow.procEnv
     property string url: ""
     property string buffer: ""
-    command: ["timeout", "-k", "2", "12", "bash", "-c",
-      "set -o pipefail; curl -sS -b '" + appWindow.sessionFile + "' " +
-      "--connect-timeout 5 --max-time 10 '" + chartProc.url + "' 2>&1 | head -c 400000"]
+    command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
+      "set -o pipefail; /usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" " +
+      "--connect-timeout 5 --max-time 10 \"$__OMAFIN_CHART_URL__\" 2>&1 | head -c 400000"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
       if (chartProc.buffer.length + s.length <= 400000) chartProc.buffer += s + "\n"
@@ -738,10 +758,11 @@ ApplicationWindow {
   Process {
     id: listsProc
     running: false
+    environment: appWindow.procEnv
     property string buffer: ""
-    command: ["timeout", "-k", "2", "20", "bash", "-c",
-      "set -o pipefail; B='" + appWindow.baseUrl + "'; S='" + appWindow.sessionFile + "'; " +
-      "emit() { echo \"__$1__\"; curl -sS -b \"$S\" --connect-timeout 5 --max-time 8 \"$B/api/$2\" 2>&1 | head -c " + appWindow.capSection + "; echo; }; " +
+    command: ["/usr/bin/timeout", "-k", "2", "20", "/usr/bin/bash", "-c",
+      "set -o pipefail; " +
+      "emit() { echo \"__$1__\"; /usr/bin/curl -sS -b \"$__OMAFIN_SESSION_FILE__\" --connect-timeout 5 --max-time 8 \"$__OMAFIN_URL__/api/$2\" 2>&1 | head -c " + appWindow.capSection + "; echo; }; " +
       "emit ADHOCS adhoc; emit REPEATS repeats; emit TRANSFERS transfers; emit TREFS transfers/recurring; emit CATS categories"]
     stdout: SplitParser { onRead: function(line) {
       var s = String(line || "")
@@ -791,21 +812,22 @@ ApplicationWindow {
   Process {
     id: mutationProc
     running: false
+    environment: appWindow.procEnv
     property string bodyJson: ""
     property bool hasBodyFlag: false
     property string method: "POST"
     property string path: ""
     property string buffer: ""
     stdinEnabled: true
-    command: ["timeout", "-k", "2", "15", "bash", "-c",
+    command: ["/usr/bin/timeout", "-k", "2", "15", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
       "_f=$(mktemp \"${XDG_RUNTIME_DIR:-/tmp}/omafinsight-mut.XXXXXX\") || exit 1; " +
       "trap 'rm -f \"$_f\" \"$_f.out\"' EXIT; " +
       (hasBodyFlag ? "while IFS= read -r _l; do [ \"$_l\" = __EOFMUT__ ] && break; printf '%s\\n' \"$_l\"; done > \"$_f\"; chmod 600 \"$_f\"; " : "rm -f \"$_f\"; ") +
-      "code=$(curl -sS --connect-timeout 5 --max-time 12 -b '" + appWindow.sessionFile + "' " +
-      "-o \"$_f.out\" -w '%{http_code}' -X " + method + " -H 'Content-Type: application/json' " +
+      "code=$(/usr/bin/curl -sS --connect-timeout 5 --max-time 12 -b \"$__OMAFIN_SESSION_FILE__\" " +
+      "-o \"$_f.out\" -w '%{http_code}' -X \"$__OMAFIN_METHOD__\" -H 'Content-Type: application/json' " +
       (hasBodyFlag ? "--data @\"$_f\" " : "") +
-      "'" + appWindow.baseUrl + path + "' 2>&1 | head -c 8); " +
+      "\"$__OMAFIN_URL__$__OMAFIN_PATH__\" 2>&1 | head -c 8); " +
       "cat \"$_f.out\" 2>/dev/null | head -c 2000; printf '\\n__CODE__%s' \"$code\""]
     onStarted: {
       if (bodyJson !== "") { write(bodyJson + "\n__EOFMUT__\n"); bodyJson = "" }
@@ -920,10 +942,11 @@ ApplicationWindow {
   Process {
     id: logoutProc
     running: false
-    command: ["timeout", "-k", "2", "10", "bash", "-c",
-      "curl -sS --connect-timeout 5 --max-time 8 -X POST -b '" + appWindow.sessionFile + "' " +
-      "'" + appWindow.baseUrl + "/api/auth/logout' >/dev/null 2>&1; " +
-      "rm -f '" + appWindow.sessionFile + "'"]
+    environment: appWindow.procEnv
+    command: ["/usr/bin/timeout", "-k", "2", "10", "/usr/bin/bash", "-c",
+      "/usr/bin/curl -sS --connect-timeout 5 --max-time 8 -X POST -b \"$__OMAFIN_SESSION_FILE__\" " +
+      "\"$__OMAFIN_URL__/api/auth/logout\" >/dev/null 2>&1; " +
+      "rm -f \"$__OMAFIN_SESSION_FILE__\""]
     onExited: function() { appWindow._resetToAuth() }
   }
 
