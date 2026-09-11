@@ -1,7 +1,5 @@
 # OmaFinSight
 
-![OmaFinSight](assets/screenshot.png)
-
 FinSight balance forecast in the Omarchy bar — plus a **native Quickshell desktop app** with charts — your **expected balance today**, **end of month** and **end of year**, per-account balances, in/out history and a low-balance warning glow, pulled live from your self-hosted [FinSight](https://github.com/LinuxGamerUK/FinSight) instance (Next.js, self-hosted on your own server).
 
 **Read-only companion.** The bar and app show your numbers; all data entry happens in the FinSight web app (`O` in the panel, or the *Open web* button).
