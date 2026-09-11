@@ -586,6 +586,7 @@ ApplicationWindow {
     busy = true
     lastError = ""
     _outstanding = 3
+    var myCycle = _cycle
     procEnv = ({
       "__OMAFIN_URL__": baseUrl,
       "__OMAFIN_SESSION_FILE__": sessionFile,
@@ -594,6 +595,9 @@ ApplicationWindow {
       "__OMAFIN_FETCH_URL__": baseUrl + "/api/dashboard" + (scope === "all" ? "?account=all" : ""),
       "__OMAFIN_CHART_URL__": baseUrl + "/api/chart?days=" + chartDays + "&back=30" + (scope === "all" ? "&account=all" : "")
     })
+    dashProc.fetchCycle = myCycle
+    chartProc.fetchCycle = myCycle
+    listsProc.fetchCycle = myCycle
     dashProc.running = true
     chartProc.running = true
     listsProc.running = true
@@ -601,6 +605,8 @@ ApplicationWindow {
     chartWatchdog.restart()
     listsWatchdog.restart()
   }
+
+  function currentCycle() { return _cycle }
 
   function _finish(ok, errMsg) {
     if (_outstanding <= 0) return   // stale exit from an aborted cycle
@@ -709,6 +715,7 @@ ApplicationWindow {
     running: false
     environment: appWindow.procEnv
     property string url: ""
+    property int fetchCycle: 0
     property string buffer: ""
     command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
@@ -725,6 +732,7 @@ ApplicationWindow {
       dashProc.running = false
       var buf = dashProc.buffer
       dashProc.buffer = ""
+      if (dashProc.fetchCycle !== currentCycle()) return
       if (exitCode === 0 && buf.trim().indexOf("{") >= 0) {
         appWindow.applyDashboard(buf.substring(buf.indexOf("{")))
         appWindow._finish(true, "")
@@ -748,6 +756,7 @@ ApplicationWindow {
     running: false
     environment: appWindow.procEnv
     property string url: ""
+    property int fetchCycle: 0
     property string buffer: ""
     command: ["/usr/bin/timeout", "-k", "2", "12", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
@@ -764,6 +773,7 @@ ApplicationWindow {
       chartProc.running = false
       var buf = chartProc.buffer
       chartProc.buffer = ""
+      if (chartProc.fetchCycle !== currentCycle()) return
       if (exitCode === 0 && buf.trim().indexOf("{") >= 0) {
         appWindow.applyChart(buf.substring(buf.indexOf("{")))
         appWindow._finish(true, "")
@@ -786,6 +796,7 @@ ApplicationWindow {
     id: listsProc
     running: false
     environment: appWindow.procEnv
+    property int fetchCycle: 0
     property string buffer: ""
     command: ["/usr/bin/timeout", "-k", "2", "20", "/usr/bin/bash", "-c",
       "set -o pipefail; " +
@@ -802,6 +813,7 @@ ApplicationWindow {
       listsProc.running = false
       var buf = listsProc.buffer
       listsProc.buffer = ""
+      if (listsProc.fetchCycle !== currentCycle()) return
       if (exitCode === 0) {
         appWindow._parseLists(buf)
         appWindow._finish(true, "")
