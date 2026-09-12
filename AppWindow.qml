@@ -19,13 +19,46 @@ ApplicationWindow {
   // falls back to the default HTTPS instance. Not overridable.
   readonly property string defaultInstance: "https://finsight.cresta.digital"
 
+  // Strict loopback test: only a literal IPv4 in 127.0.0.0/8 (all four
+  // octets numeric, 0-255), the exact hostname "localhost", or the literal
+  // IPv6 [::1] — with an optional numeric port. DNS names, userinfo and
+  // ambiguous encodings are rejected.
   function isLoopbackHost(host) {
     var h = String(host || "").toLowerCase()
-    if (h === "localhost" || h === "::1" || h === "[::1]") return true
-    if (h.indexOf("localhost:") === 0) return true
-    if (h.indexOf("127.") === 0) return true
-    if (h.indexOf("[::1]:") === 0) return true
-    return false
+    // split off userinfo if present (user@host) — reject if present
+    if (h.indexOf("@") !== -1) return false
+    // literal bracketed IPv6 loopback, optional numeric port: [::1] or [::1]:8080
+    var v6 = h.match(/^\[::1\](:([0-9]{1,5}))?$/)
+    if (v6) {
+      if (v6[2] !== undefined) {
+        var p6 = parseInt(v6[2], 10)
+        if (String(p6) !== String(v6[2]) || p6 < 1 || p6 > 65535) return false
+      }
+      return true
+    }
+    // optional port: host[:port]
+    var m = h.match(/^([^:]+)(:([0-9]{1,5}))?$/)
+    if (!m) return false
+    var hostPart = m[1]
+    var port = m[3]
+    if (port !== undefined) {
+      var portNum = parseInt(port, 10)
+      if (String(portNum) !== String(port) || portNum < 1 || portNum > 65535) return false
+    }
+    if (hostPart === "localhost") return true
+    // literal IPv6 loopback (bracketed in URLs)
+    if (hostPart === "[::1]") return true
+    // literal IPv4: exactly four numeric octets, first must be 127
+    var octets = hostPart.split(".")
+    if (octets.length !== 4) return false
+    for (var i = 0; i < 4; i++) {
+      if (!/^[0-9]{1,3}$/.test(octets[i])) return false
+      var n = parseInt(octets[i], 10)
+      // reject ambiguous encodings: no leading zeros (except "0" itself)
+      if (octets[i].length > 1 && octets[i].charAt(0) === "0") return false
+      if (n < 0 || n > 255) return false
+    }
+    return parseInt(octets[0], 10) === 127
   }
 
   readonly property string baseUrl: {
